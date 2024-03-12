@@ -1,14 +1,19 @@
-[tool.poetry]
+[project]
 name = "yunetas"
 version = "0.1.0"
-description = ""
-authors = ["rmm <rosa.martinez@artgins.com>"]
+description = "Terminal User Interface of Yunetas"
+authors = [
+    {name = "rmm", email = "rosa.martinez@artgins.com"},
+]
+dependencies = []
+requires-python = ">=3.11"
 readme = "README.md"
-
-[tool.poetry.dependencies]
-python = "^3.11"
-
+license = {text = "MIT"}
 
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"
+
+
+[tool.pdm]
+distribution = true
