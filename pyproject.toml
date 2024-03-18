@@ -5,7 +5,9 @@ description = "Terminal User Interface of Yunetas"
 authors = [
     {name = "rmm", email = "rosa.martinez@artgins.com"},
 ]
-dependencies = []
+dependencies = [
+    "typer[all]>=0.9.0",
+]
 requires-python = ">=3.11"
 readme = "README.md"
 license = {text = "MIT"}
