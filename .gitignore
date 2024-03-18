@@ -4,3 +4,4 @@ __pycache__/
 .pdm-build/
 .pdm-python
 __pypackages__/
+.ruff_cache/
