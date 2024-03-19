@@ -3,7 +3,7 @@ requires = ["pdm-backend"]
 build-backend = "pdm.backend"
 
 [project.scripts]
-yunetas = "yunetas:run"
+yunetas = "yunetas.main:run"
 
 [project]
 name = "yunetas"
