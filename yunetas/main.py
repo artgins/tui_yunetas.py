@@ -35,7 +35,7 @@ def delete(username: str):
 
 
 @app.callback(invoke_without_command=True)
-def main(ctx: typer.Context):
+def callback(ctx: typer.Context):
     """
     Manage users in the awesome CLI app.
     """
@@ -77,7 +77,3 @@ def main(ctx: typer.Context):
 
 def run():
     app()
-
-
-if __name__ == "__main__":
-    sys.exit(run())

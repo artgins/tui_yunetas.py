@@ -22,7 +22,3 @@ def main(ctx: typer.Context):
         # No subcommand was provided, so we print the help.
         typer.main.get_command(app).get_help(ctx)
         raise typer.Exit(code=1)
-
-
-if __name__ == "__main__":
-    app()
