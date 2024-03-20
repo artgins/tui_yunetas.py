@@ -6,11 +6,11 @@ from rich.table import Table
 from rich.panel import Panel
 from rich.console import group
 
-from .my_venv import app as app2
+from .my_venv import app_venv
 # import .my_venv as my_venv
 
 app = typer.Typer()
-app.add_typer(app2, name="venv")
+app.add_typer(app_venv, name="venv")
 
 state = {"verbose": False}
 console = Console()

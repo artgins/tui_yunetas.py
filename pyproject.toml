@@ -7,7 +7,7 @@ yunetas = "yunetas.main:run"
 
 [project]
 name = "yunetas"
-version = "0.1.0"
+dynamic = ["version"]
 description = "TUI (Terminal User Interface) of Yunetas"
 authors = [
     {name = "rmm", email = "rosa.martinez@artgins.com"},
@@ -21,3 +21,4 @@ license = {text = "MIT"}
 
 [tool.pdm]
 distribution = true
+version = { source = "file", path = "yunetas/__init__.py" }
