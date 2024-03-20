@@ -5,11 +5,12 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.console import group
-
+from .__version__ import __version__
 from .my_venv import app_venv
-# import .my_venv as my_venv
+from typing import Optional
 
-app = typer.Typer()
+# Create the app.
+app = typer.Typer(help="TUI tool using yunetas")
 app.add_typer(app_venv, name="venv")
 
 state = {"verbose": False}
@@ -34,41 +35,34 @@ def delete(username: str):
         print("Just deleted a user")
 
 
-@app.callback(invoke_without_command=True)
-def callback(ctx: typer.Context):
-    """
-    Manage users in the awesome CLI app.
-    """
-    # if verbose:
-    #     print("Will write verbose output")
-    #     state["verbose"] = True
-    # print("[bold red]Alert![/bold red] [green]Portal gun[/green] shooting! :boom:")
-    #
-    # table = Table("Name", "Item")
-    # table.add_row("Rick", "Portal Gun")
-    # table.add_row("Morty", "Plumbus")
-    # console.print(table)
-    #
-    # data = {
-    #     "name": "Rick",
-    #     "age": 42,
-    #     "items": [{"name": "Portal Gun"}, {"name": "Plumbus"}],
-    #     "active": True,
-    #     "affiliation": None,
-    # }
-    # print(data)
-    #
-    # print(Panel("Hello, [red]World!"))
-    # print(Panel.fit("Hello, [red]World!"))
-    # print(Panel("Hello, [red]World!", title="Welcome", subtitle="Thank you"))
-    #
-    # @group()
-    # def get_panels():
-    #     yield Panel("Hello", style="on blue")
-    #     yield Panel("World", style="on red")
-    #
-    # print(Panel(get_panels()))
+def version_callback(value: bool):
+    if value:
+        print(f"{__version__}")
+        raise typer.Exit()
 
+
+@app.command()
+def version():
+    """
+    Print version information
+    """
+    version_callback(True)
+
+
+@app.callback(invoke_without_command=True)
+def app_main(
+    ctx: typer.Context,
+    version_: Optional[bool] = typer.Option(
+        None,
+        "-v",
+        "--version",
+        callback=version_callback,
+        is_eager=True,
+        help="Print version and exit",
+    )
+):
+    # Silence warning
+    _ = version_
     if ctx.invoked_subcommand is None:
         # No subcommand was provided, so we print the help.
         typer.main.get_command(app).get_help(ctx)

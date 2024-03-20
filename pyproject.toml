@@ -21,4 +21,4 @@ license = {text = "MIT"}
 
 [tool.pdm]
 distribution = true
-version = { source = "file", path = "yunetas/__init__.py" }
+version = { source = "file", path = "yunetas/__version__.py" }
