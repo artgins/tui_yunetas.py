@@ -1,10 +1,6 @@
-import sys
 import typer
 from rich import print
 from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
-from rich.console import group
 from .__version__ import __version__
 from .my_venv import app_venv
 from typing import Optional
