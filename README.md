@@ -7,3 +7,9 @@
   pdm build
   pdm publish
 ```
+
+## Install in editable mode using pip:
+
+```shell
+  pip install -e .
+```

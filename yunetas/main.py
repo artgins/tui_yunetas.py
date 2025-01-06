@@ -6,7 +6,7 @@ from .my_venv import app_venv
 from typing import Optional
 
 # Create the app.
-app = typer.Typer(help="TUI tool using yunetas")
+app = typer.Typer(help="TUI for yunetas SDK")
 app.add_typer(app_venv, name="venv")
 
 state = {"verbose": False}
