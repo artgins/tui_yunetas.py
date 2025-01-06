@@ -7,3 +7,4 @@ __pypackages__/
 .ruff_cache/
 
 .idea/
+dist/
