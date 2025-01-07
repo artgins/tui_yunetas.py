@@ -110,7 +110,6 @@ def test():
         print("Run tests on yunetas")
 
     setup_yuneta_environment()
-    process_build_command(["."], ["rm", "-rf"])
     process_directories(["."], "Debug")
     ret = process_build_command(["."], ["make"])
     if ret == 0:
