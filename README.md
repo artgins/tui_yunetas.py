@@ -5,7 +5,12 @@
 This package use `pdm` to build and publish.
 
 ```shell
-  pip install pdm
+    pip install pdm
+    pip install cement
+    pip install plumbum
+    pip install fastapi
+    pip install "uvicorn[standard]"
+    pip install "typer[all]"
 ```
 
 ## Build and publish
