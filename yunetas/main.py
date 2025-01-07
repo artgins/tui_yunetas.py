@@ -9,11 +9,18 @@ import os
 import sys
 import subprocess
 
-# Check if YUNETAS_BASE is set in the environment
+# Check if YUNETAS_BASE is set, or derive it from the current directory if YUNETA_VERSION exists
 YUNETAS_BASE = os.getenv("YUNETAS_BASE")
+current_dir = os.getcwd()
+yuneta_version_path = os.path.join(current_dir, "YUNETA_VERSION")
+
 if not YUNETAS_BASE:
-    print("[red]Error: YUNETAS_BASE environment variable is not set.[/red]")
-    sys.exit(1)
+    if os.path.isfile(yuneta_version_path):
+        YUNETAS_BASE = current_dir
+        print(f"[yellow]YUNETAS_BASE not set. Using current directory as YUNETAS_BASE: {YUNETAS_BASE}[/yellow]")
+    else:
+        print("[red]Error: YUNETAS_BASE environment variable is not set and YUNETA_VERSION file not found in the current directory.[/red]")
+        sys.exit(1)
 
 if not os.path.isdir(YUNETAS_BASE):
     print(f"[red]Error: YUNETAS_BASE '{YUNETAS_BASE}' does not exist or is not a directory.[/red]")
@@ -39,18 +46,6 @@ app.add_typer(app_venv, name="venv")
 
 state = {"verbose": False}
 console = Console()
-
-
-@app.command()
-def clone():
-    """
-    TODO Clone yunetas
-    """
-    if state["verbose"]:
-        print("Clone yunetas")
-
-    if state["verbose"]:
-        print("Done")
 
 
 @app.command()
@@ -115,21 +110,10 @@ def test():
         print("Run tests on yunetas")
 
     setup_yuneta_environment()
+    process_build_command(["."], ["rm", "-rf"])
     process_directories(["."], "Debug")
     process_build_command(["."], ["make"])
     process_build_command(["."], ["ctest"])
-
-    if state["verbose"]:
-        print("Done")
-
-
-@app.command()
-def deploy():
-    """
-    TODO Deploy yunetas
-    """
-    if state["verbose"]:
-        print("Deploy yunetas")
 
     if state["verbose"]:
         print("Done")
