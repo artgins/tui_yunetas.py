@@ -3,12 +3,27 @@ from rich import print
 from rich.console import Console
 from .__version__ import __version__
 from .my_venv import app_venv
-from typing import Optional
+from typing import Optional, List
+from pathlib import Path
 import os
 import sys
+import subprocess
 
 # Global variable for YUNETAS_BASE_DIR
 YUNETAS_BASE_DIR = os.getenv("YUNETAS_BASE", "/yuneta/development/yunetas")
+
+# Directories to process
+DIRECTORIES = [
+    "kernel/c/gobj-c",
+    "kernel/c/ytls",
+    "kernel/c/yev_loop",
+    "kernel/c/timeranger2",
+    "kernel/c/root-linux",
+    "kernel/c/root-esp32",
+    "modules/c/*",
+    "utils/c/*",
+    "yunos/c/*",
+]
 
 # Create the app.
 app = typer.Typer(help="TUI for yunetas SDK")
@@ -26,6 +41,7 @@ def init_debug():
     if state["verbose"]:
         print("Initialize yunetas in Debug mode")
     setup_yuneta_environment()
+    process_directories(DIRECTORIES, "Debug")
 
     if state["verbose"]:
         print("Done")
@@ -39,6 +55,7 @@ def init_prod():
     if state["verbose"]:
         print("Initialize yunetas in Production mode")
     setup_yuneta_environment()
+    process_directories(DIRECTORIES, "RelWithDebInfo")
 
     if state["verbose"]:
         print("Done")
@@ -47,12 +64,11 @@ def init_prod():
 @app.command()
 def build():
     """
-    Build yunetas
+    Build and install yunetas.
     """
     if state["verbose"]:
-        print("Build yunetas")
-    setup_yuneta_environment()
-
+        print("Building and installing yunetas")
+    process_build_command(DIRECTORIES, ["make", "install"])  # Replace with ["ninja", "install"] if using Ninja
     if state["verbose"]:
         print("Done")
 
@@ -60,12 +76,11 @@ def build():
 @app.command()
 def clean():
     """
-    Clean up generated files from yunetas
+    Clean up build directories in yunetas.
     """
     if state["verbose"]:
-        print("Clean up generated files from yunetas")
-    setup_yuneta_environment()
-
+        print("Cleaning up build directories in yunetas")
+    process_build_command(DIRECTORIES, ["make", "clean"])  # Replace with ["ninja", "clean"] if using Ninja
     if state["verbose"]:
         print("Done")
 
@@ -77,7 +92,10 @@ def test():
     """
     if state["verbose"]:
         print("Run tests on yunetas")
-    setup_yuneta_environment()
+
+    process_directories(["."], "Debug")
+    process_build_command(["."], ["make"])
+    process_build_command(["."], ["ctest"])
 
     if state["verbose"]:
         print("Done")
@@ -90,7 +108,6 @@ def deploy():
     """
     if state["verbose"]:
         print("Deploy yunetas")
-    setup_yuneta_environment()
 
     if state["verbose"]:
         print("Done")
@@ -108,6 +125,30 @@ def version():
     Print version information
     """
     version_callback(True)
+
+
+@app.callback(invoke_without_command=True)
+def app_main(
+    ctx: typer.Context,
+    version_: Optional[bool] = typer.Option(
+        None,
+        "-v",
+        "--version",
+        callback=version_callback,
+        is_eager=True,
+        help="Print version and exit",
+    )
+):
+    # Silence warning
+    _ = version_
+    if ctx.invoked_subcommand is None:
+        # No subcommand was provided, so we print the help.
+        typer.main.get_command(app).get_help(ctx)
+        raise typer.Exit(code=1)
+
+
+def run():
+    app()
 
 
 def kconfig2include(config_file_path):
@@ -266,25 +307,82 @@ def setup_yuneta_environment():
     print(f"  - Include directory: {inc_dest_dir}")
 
 
-@app.callback(invoke_without_command=True)
-def app_main(
-    ctx: typer.Context,
-    version_: Optional[bool] = typer.Option(
-        None,
-        "-v",
-        "--version",
-        callback=version_callback,
-        is_eager=True,
-        help="Print version and exit",
-    )
-):
-    # Silence warning
-    _ = version_
-    if ctx.invoked_subcommand is None:
-        # No subcommand was provided, so we print the help.
-        typer.main.get_command(app).get_help(ctx)
+def process_directories(directories: List[str], build_type: str):
+    """
+    Process directories and execute build commands.
+
+    Args:
+        directories (List[str]): List of directories to process.
+        build_type (str): Build type (Debug or RelWithDebInfo).
+    """
+    base_path = Path(YUNETAS_BASE_DIR)
+    if not base_path.is_dir():
+        print(f"[red]Error: YUNETAS_BASE_DIR '{YUNETAS_BASE_DIR}' does not exist or is not a directory.[/red]")
         raise typer.Exit(code=1)
 
+    for directory in directories:
+        path_pattern = base_path / directory
+        for dir_path in path_pattern.parent.glob(path_pattern.name):  # Support wildcard directories
+            if dir_path.is_dir():
+                print(f"[cyan]Processing directory: {dir_path}[/cyan]")
 
-def run():
-    app()
+                build_dir = dir_path / "build"
+
+                try:
+                    # Remove build directory if it exists
+                    if build_dir.exists():
+                        print(f"[yellow]Removing existing build directory: {build_dir}[/yellow]")
+                        subprocess.run(["rm", "-rf", str(build_dir)], check=True)
+
+                    # Create a new build directory
+                    print(f"[green]Creating build directory: {build_dir}[/green]")
+                    build_dir.mkdir(parents=True, exist_ok=True)
+
+                    # Run cmake commands
+                    cmake_command = [
+                        "cmake",
+                        f"-DCMAKE_BUILD_TYPE={build_type}",
+                        "..",
+                    ]
+                    print(f"[blue]Running cmake command in {build_dir}[/blue]")
+                    subprocess.run(cmake_command, cwd=build_dir, check=True)
+
+                except subprocess.CalledProcessError as e:
+                    print(f"[red]Error occurred while processing {dir_path}: {e}[/red]")
+
+
+def process_build_command(directories: List[str], command: List[str]):
+    """
+    Process build commands (e.g., ["make", "install"], ["ninja", "clean"]) in specified directories.
+
+    Args:
+        directories (List[str]): List of directories to process.
+        command (List[str]): The build command to execute as a list (e.g., ["make", "install"]).
+    """
+    base_path = Path(YUNETAS_BASE_DIR)
+    if not base_path.is_dir():
+        print(f"[red]Error: YUNETAS_BASE_DIR '{YUNETAS_BASE_DIR}' does not exist or is not a directory.[/red]")
+        raise typer.Exit(code=1)
+
+    for directory in directories:
+        path_pattern = base_path / directory
+        for dir_path in path_pattern.parent.glob(path_pattern.name):  # Support wildcard directories
+            if not dir_path.is_dir():
+                continue
+
+            cmake_file = dir_path / "CMakeLists.txt"
+            if not cmake_file.exists():
+                print(f"[yellow]Skipping {dir_path}: No CMakeLists.txt found[/yellow]")
+                continue
+
+            build_dir = dir_path / "build"
+            if build_dir.is_dir():
+                print(f"[cyan]Processing build directory: {build_dir}[/cyan]")
+                try:
+                    # Execute the specified build command
+                    print(f"[blue]Running '{' '.join(command)}' in {build_dir}[/blue]")
+                    subprocess.run(command, cwd=build_dir, check=True)
+                except subprocess.CalledProcessError as e:
+                    print(f"[red]Error occurred while running '{' '.join(command)}' in {build_dir}: {e}[/red]")
+            else:
+                print(f"[yellow]Skipping {dir_path}: No build directory found[/yellow]")
