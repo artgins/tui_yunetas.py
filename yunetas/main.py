@@ -68,6 +68,7 @@ def build():
     """
     if state["verbose"]:
         print("Building and installing yunetas")
+    setup_yuneta_environment()
     process_build_command(DIRECTORIES, ["make", "install"])  # Replace with ["ninja", "install"] if using Ninja
     if state["verbose"]:
         print("Done")
@@ -93,6 +94,7 @@ def test():
     if state["verbose"]:
         print("Run tests on yunetas")
 
+    setup_yuneta_environment()
     process_directories(["."], "Debug")
     process_build_command(["."], ["make"])
     process_build_command(["."], ["ctest"])
@@ -282,7 +284,8 @@ def setup_yuneta_environment():
 /*
  *  Yuneta Configuration
  *  Automatically generated file. DO NOT EDIT.
- *  Set configuration in .config file.
+ *  Set configuration in .config file. 
+ *  Modify with `menuconfig` command.
  *
  *  Copyright (c) 2024, ArtGins
  */
