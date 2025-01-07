@@ -112,8 +112,9 @@ def test():
     setup_yuneta_environment()
     process_build_command(["."], ["rm", "-rf"])
     process_directories(["."], "Debug")
-    process_build_command(["."], ["make"])
-    process_build_command(["."], ["ctest"])
+    ret = process_build_command(["."], ["make"])
+    if ret == 0:
+        process_build_command(["."], ["ctest"])
 
     if state["verbose"]:
         print("Done")
@@ -359,6 +360,7 @@ def process_build_command(directories: List[str], command: List[str]):
         directories (List[str]): List of directories to process.
         command (List[str]): The build command to execute as a list (e.g., ["make", "install"]).
     """
+    ret = 0
     base_path = Path(YUNETAS_BASE)
     if not base_path.is_dir():
         print(f"[red]Error: YUNETAS_BASE '{YUNETAS_BASE}' does not exist or is not a directory.[/red]")
@@ -384,5 +386,8 @@ def process_build_command(directories: List[str], command: List[str]):
                     subprocess.run(command, cwd=build_dir, check=True)
                 except subprocess.CalledProcessError as e:
                     print(f"[red]Error occurred while running '{' '.join(command)}' in {build_dir}: {e}[/red]")
+                    ret = -1
             else:
                 print(f"[yellow]Skipping {dir_path}: No build directory found[/yellow]")
+
+    return ret
