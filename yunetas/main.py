@@ -9,8 +9,16 @@ import os
 import sys
 import subprocess
 
-# Global variable for YUNETAS_BASE_DIR
-YUNETAS_BASE_DIR = os.getenv("YUNETAS_BASE", "/yuneta/development/yunetas")
+# Check if YUNETAS_BASE is set in the environment
+YUNETAS_BASE = os.getenv("YUNETAS_BASE")
+if not YUNETAS_BASE:
+    print("[red]Error: YUNETAS_BASE environment variable is not set.[/red]")
+    sys.exit(1)
+
+if not os.path.isdir(YUNETAS_BASE):
+    print(f"[red]Error: YUNETAS_BASE '{YUNETAS_BASE}' does not exist or is not a directory.[/red]")
+    sys.exit(1)
+
 
 # Directories to process
 DIRECTORIES = [
@@ -31,6 +39,18 @@ app.add_typer(app_venv, name="venv")
 
 state = {"verbose": False}
 console = Console()
+
+
+@app.command()
+def clone():
+    """
+    TODO Clone yunetas
+    """
+    if state["verbose"]:
+        print("Clone yunetas")
+
+    if state["verbose"]:
+        print("Done")
 
 
 @app.command()
@@ -106,7 +126,7 @@ def test():
 @app.command()
 def deploy():
     """
-    Deploy yunetas
+    TODO Deploy yunetas
     """
     if state["verbose"]:
         print("Deploy yunetas")
@@ -210,34 +230,27 @@ def is_file_outdated(source_file, target_file):
 def setup_yuneta_environment():
     """
     Check and configure Yuneta environment variables, and prepare directories for generated files.
-    Ensures YUNETAS_BASE_DIR and its required files exist.
+    Ensures YUNETAS_BASE and its required files exist.
     Generates yuneta_version.h and yuneta_config.h using kconfig2include.
     """
     #--------------------------------------------------#
-    # Check if YUNETAS_BASE_DIR exists
+    # Check if YUNETA_VERSION and .config files exist in YUNETAS_BASE
     #--------------------------------------------------#
-    if not os.path.isdir(YUNETAS_BASE_DIR):
-        print(f"Error: YUNETAS_BASE_DIR '{YUNETAS_BASE_DIR}' does not exist or is not a directory.")
-        sys.exit(1)
-
-    #--------------------------------------------------#
-    # Check if YUNETA_VERSION and .config files exist in YUNETAS_BASE_DIR
-    #--------------------------------------------------#
-    yuneta_version_path = os.path.join(YUNETAS_BASE_DIR, "YUNETA_VERSION")
-    yuneta_config_path = os.path.join(YUNETAS_BASE_DIR, ".config")
+    yuneta_version_path = os.path.join(YUNETAS_BASE, "YUNETA_VERSION")
+    yuneta_config_path = os.path.join(YUNETAS_BASE, ".config")
 
     if not os.path.isfile(yuneta_version_path):
-        print(f"Error: YUNETA_VERSION file not found in '{YUNETAS_BASE_DIR}'.")
+        print(f"Error: YUNETA_VERSION file not found in '{YUNETAS_BASE}'.")
         sys.exit(1)
 
     if not os.path.isfile(yuneta_config_path):
-        print(f"Error: .config file not found in '{YUNETAS_BASE_DIR}'.")
+        print(f"Error: .config file not found in '{YUNETAS_BASE}'.")
         sys.exit(1)
 
     #--------------------------------------------------#
-    # Get parent directory of YUNETAS_BASE_DIR and set up output directories
+    # Get parent directory of YUNETAS_BASE and set up output directories
     #--------------------------------------------------#
-    yunetas_parent_base_dir = os.path.dirname(YUNETAS_BASE_DIR)
+    yunetas_parent_base_dir = os.path.dirname(YUNETAS_BASE)
     outputs_dir = os.path.join(yunetas_parent_base_dir, "outputs")
     inc_dest_dir = os.path.join(outputs_dir, "include")
 
@@ -304,7 +317,7 @@ def setup_yuneta_environment():
             sys.exit(1)
 
     print(f"Setup completed successfully:")
-    print(f"  - YUNETAS_BASE_DIR: {YUNETAS_BASE_DIR}")
+    print(f"  - YUNETAS_BASE: {YUNETAS_BASE}")
     print(f"  - YUNETA_VERSION: {yuneta_version_path}")
     print(f"  - .config: {yuneta_config_path}")
     print(f"  - Include directory: {inc_dest_dir}")
@@ -318,9 +331,9 @@ def process_directories(directories: List[str], build_type: str):
         directories (List[str]): List of directories to process.
         build_type (str): Build type (Debug or RelWithDebInfo).
     """
-    base_path = Path(YUNETAS_BASE_DIR)
+    base_path = Path(YUNETAS_BASE)
     if not base_path.is_dir():
-        print(f"[red]Error: YUNETAS_BASE_DIR '{YUNETAS_BASE_DIR}' does not exist or is not a directory.[/red]")
+        print(f"[red]Error: YUNETAS_BASE '{YUNETAS_BASE}' does not exist or is not a directory.[/red]")
         raise typer.Exit(code=1)
 
     for directory in directories:
@@ -362,9 +375,9 @@ def process_build_command(directories: List[str], command: List[str]):
         directories (List[str]): List of directories to process.
         command (List[str]): The build command to execute as a list (e.g., ["make", "install"]).
     """
-    base_path = Path(YUNETAS_BASE_DIR)
+    base_path = Path(YUNETAS_BASE)
     if not base_path.is_dir():
-        print(f"[red]Error: YUNETAS_BASE_DIR '{YUNETAS_BASE_DIR}' does not exist or is not a directory.[/red]")
+        print(f"[red]Error: YUNETAS_BASE '{YUNETAS_BASE}' does not exist or is not a directory.[/red]")
         raise typer.Exit(code=1)
 
     for directory in directories:
