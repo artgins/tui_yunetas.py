@@ -285,7 +285,7 @@ def setup_yuneta_environment():
  *  Yuneta Configuration
  *  Automatically generated file. DO NOT EDIT.
  *  Set configuration in .config file. 
- *  Modify with `menuconfig` command.
+ *  Modify with `menuconfig` command in yunetas root directory.
  *
  *  Copyright (c) 2024, ArtGins
  */
