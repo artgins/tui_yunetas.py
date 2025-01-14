@@ -64,4 +64,4 @@ This package use `pdm` to build and publish.
 ## Change the version
 
 > Edit the `__version__.py` file and change the variable `__version__`.
-Then [build and publish](#build-and-publish)
+Then [build and publish](build-and-publish)
