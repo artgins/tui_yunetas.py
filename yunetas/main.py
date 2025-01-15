@@ -8,6 +8,7 @@ from pathlib import Path
 import os
 import sys
 import subprocess
+import shutil
 
 # Check if YUNETAS_BASE is set, or derive it from the current directory if YUNETA_VERSION exists
 YUNETAS_BASE = os.getenv("YUNETAS_BASE")
@@ -55,7 +56,7 @@ def init_debug():
     """
     if state["verbose"]:
         print("Initialize yunetas in Debug mode")
-    setup_yuneta_environment()
+    setup_yuneta_environment(True)
     process_directories(DIRECTORIES, "Debug")
 
     if state["verbose"]:
@@ -69,7 +70,7 @@ def init_prod():
     """
     if state["verbose"]:
         print("Initialize yunetas in Production mode")
-    setup_yuneta_environment()
+    setup_yuneta_environment(True)
     process_directories(DIRECTORIES, "RelWithDebInfo")
 
     if state["verbose"]:
@@ -211,7 +212,7 @@ def is_file_outdated(source_file, target_file):
         return True  # Target file doesn't exist, needs to be created
     return os.path.getmtime(source_file) > os.path.getmtime(target_file)
 
-def setup_yuneta_environment():
+def setup_yuneta_environment(reset_outputs=False):
     """
     Check and configure Yuneta environment variables, and prepare directories for generated files.
     Ensures YUNETAS_BASE and its required files exist.
@@ -239,6 +240,8 @@ def setup_yuneta_environment():
     inc_dest_dir = os.path.join(outputs_dir, "include")
 
     try:
+        if reset_outputs:
+            shutil.rmtree(inc_dest_dir)
         # Create 'outputs/include' directory if it doesn't exist
         os.makedirs(inc_dest_dir, exist_ok=True)
     except OSError as e:
