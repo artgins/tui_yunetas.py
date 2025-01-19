@@ -58,6 +58,7 @@ def init_debug():
         print("Initialize yunetas in Debug mode")
     setup_yuneta_environment(True)
     process_directories(DIRECTORIES, "Debug")
+    process_directories(["."], "Debug")
 
     if state["verbose"]:
         print("Done")
@@ -72,6 +73,7 @@ def init_prod():
         print("Initialize yunetas in Production mode")
     setup_yuneta_environment(True)
     process_directories(DIRECTORIES, "RelWithDebInfo")
+    process_directories(["."], "Debug")
 
     if state["verbose"]:
         print("Done")
@@ -111,7 +113,6 @@ def test():
         print("Run tests on yunetas")
 
     setup_yuneta_environment()
-    process_directories(["."], "Debug")
     ret = process_build_command(["."], ["make"])
     if ret == 0:
         process_build_command(["."], ["ctest"])
