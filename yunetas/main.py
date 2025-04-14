@@ -390,6 +390,7 @@ def process_build_command(directories: List[str], command: List[str]):
                 except subprocess.CalledProcessError as e:
                     print(f"[red]Error occurred while running '{' '.join(command)}' in {build_dir}: {e}[/red]")
                     ret = -1
+                    exit(-1)
             else:
                 print(f"[yellow]Skipping {dir_path}: No build directory found[/yellow]")
 
