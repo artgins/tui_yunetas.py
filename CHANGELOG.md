@@ -9,3 +9,6 @@ rebuild test directory in init-debug or init-prod, not in each test command
 
 ## v0.3.2 -- 2025-04-14
 break compile if some fails
+
+## v0.3.3 -- 2025-04-24
+rebuild test directory in each test command

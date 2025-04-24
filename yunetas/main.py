@@ -113,6 +113,7 @@ def test():
         print("Run tests on yunetas")
 
     setup_yuneta_environment()
+    process_directories(["."], "Debug")
     ret = process_build_command(["."], ["make"])
     if ret == 0:
         process_build_command(["."], ["ctest"])
