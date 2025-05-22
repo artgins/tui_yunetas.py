@@ -50,7 +50,8 @@ This package use `pdm` to build and publish.
 
 ## Build and publish
 ```shell
-  # Firstly go to source root folder
+  # Firstly change the version (explained below)
+  # Next go to source root folder
   pdm build
   pdm publish --username __token__ --password <your-api-token> # (me: the full command is saved in publish-tui_yunetas.sh)
 ```
