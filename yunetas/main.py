@@ -9,6 +9,7 @@ import os
 import sys
 import subprocess
 import shutil
+from datetime import datetime
 
 # Check if YUNETAS_BASE is set, or derive it from the current directory if YUNETA_VERSION exists
 YUNETAS_BASE = os.getenv("YUNETAS_BASE")
@@ -282,14 +283,16 @@ def setup_yuneta_environment(reset_outputs=False):
     #--------------------------------------------------#
     yuneta_config_h_path = os.path.join(inc_dest_dir, "yuneta_config.h")
     if is_file_outdated(yuneta_config_path, yuneta_config_h_path):
-        config_header_content = """\
+        year = datetime.now().year
+
+        config_header_content = f"""\
 /*
  *  Yuneta Configuration
  *  Automatically generated file. DO NOT EDIT.
  *  Set configuration in .config file. 
  *  Modify with `menuconfig` command in yunetas root directory.
  *
- *  Copyright (c) 2024, ArtGins
+ *  Copyright (c) {year} ArtGins
  */
 #pragma once
 
