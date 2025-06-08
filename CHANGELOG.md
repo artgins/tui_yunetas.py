@@ -12,3 +12,6 @@ break compile if some fails
 
 ## v0.3.3 -- 2025-04-24
 rebuild test directory in each test command
+
+## v0.3.5 -- 2025-06-08
+add test_verbose

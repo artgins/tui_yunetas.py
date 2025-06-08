@@ -108,16 +108,34 @@ def clean():
 @app.command()
 def test():
     """
-    Run tests on yunetas
+    Run ctest in yunetas
     """
     if state["verbose"]:
-        print("Run tests on yunetas")
+        print("Run ctest in yunetas")
 
     setup_yuneta_environment()
     process_directories(["."], "Debug")
     ret = process_build_command(["."], ["make"])
     if ret == 0:
         process_build_command(["."], ["ctest"])
+
+    if state["verbose"]:
+        print("Done")
+
+
+@app.command()
+def test_verbose():
+    """
+    Run ctest --verbose in yunetas
+    """
+    if state["verbose"]:
+        print("Run ctest --verbose in yunetas")
+
+    setup_yuneta_environment()
+    process_directories(["."], "Debug")
+    ret = process_build_command(["."], ["make"])
+    if ret == 0:
+        process_build_command(["."], ["ctest", "--verbose"])
 
     if state["verbose"]:
         print("Done")
