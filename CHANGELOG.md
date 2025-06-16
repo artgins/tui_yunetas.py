@@ -15,3 +15,6 @@ rebuild test directory in each test command
 
 ## v0.3.5 -- 2025-06-08
 add test_verbose
+
+## v0.3.6 -- 2025-06-16
+read .config to get what compiler to use (CLANG, GCC, MUSL)

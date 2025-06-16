@@ -334,9 +334,36 @@ def setup_yuneta_environment(reset_outputs=False):
     print(f"  - Include directory: {inc_dest_dir}")
 
 
+#--------------------------------------------------#
+#   Detect compiler from .config
+#--------------------------------------------------#
+def get_compiler_from_config():
+    """
+    Parse .config and return CC (C compiler) based on CONFIG_USE_COMPILER_*
+    """
+    config_path = os.path.join(YUNETAS_BASE, ".config")
+    if not os.path.isfile(config_path):
+        return None
+
+    with open(config_path, "r") as f:
+        for line in f:
+            line = line.strip()
+            if line == "CONFIG_USE_COMPILER_CLANG=y":
+                return "clang"
+            elif line == "CONFIG_USE_COMPILER_GCC=y":
+                return "gcc"
+            elif line == "CONFIG_USE_COMPILER_MUSL=y":
+                return "musl-gcc"
+
+    return None
+
+
+#--------------------------------------------------#
+#   Process directories and run cmake
+#--------------------------------------------------#
 def process_directories(directories: List[str], build_type: str):
     """
-    Process directories and execute build commands.
+    Process directories and execute cmake with build type and detected compiler
 
     Args:
         directories (List[str]): List of directories to process.
@@ -346,6 +373,11 @@ def process_directories(directories: List[str], build_type: str):
     if not base_path.is_dir():
         print(f"[red]Error: YUNETAS_BASE '{YUNETAS_BASE}' does not exist or is not a directory.[/red]")
         raise typer.Exit(code=1)
+
+    #--------------------------------------------------#
+    #   Detect compiler from .config (Clang, GCC, musl)
+    #--------------------------------------------------#
+    cc = get_compiler_from_config()
 
     for directory in directories:
         path_pattern = base_path / directory
@@ -365,12 +397,15 @@ def process_directories(directories: List[str], build_type: str):
                     print(f"[green]Creating build directory: {build_dir}[/green]")
                     build_dir.mkdir(parents=True, exist_ok=True)
 
-                    # Run cmake commands
+                    # Run cmake with build type and optional compiler
                     cmake_command = [
                         "cmake",
                         f"-DCMAKE_BUILD_TYPE={build_type}",
-                        "..",
                     ]
+                    if cc:
+                        cmake_command.append(f"-DCMAKE_C_COMPILER={cc}")
+                    cmake_command.append("..")
+
                     print(f"[blue]Running cmake command in {build_dir}[/blue]")
                     subprocess.run(cmake_command, cwd=build_dir, check=True)
 
