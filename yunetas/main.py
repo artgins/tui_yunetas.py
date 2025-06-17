@@ -263,7 +263,8 @@ def setup_yuneta_environment(reset_outputs=False):
 
     try:
         if reset_outputs:
-            shutil.rmtree(inc_dest_dir)
+            if os.path.isdir(inc_dest_dir):
+                shutil.rmtree(inc_dest_dir)
         # Create 'outputs/include' directory if it doesn't exist
         os.makedirs(inc_dest_dir, exist_ok=True)
     except OSError as e:

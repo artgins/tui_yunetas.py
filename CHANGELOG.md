@@ -18,3 +18,6 @@ add test_verbose
 
 ## v0.3.6 -- 2025-06-16
 read .config to get what compiler to use (CLANG, GCC, MUSL)
+
+## v0.3.7 -- 2025-06-16
+Fix if directory to remove not exist
