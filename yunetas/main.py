@@ -58,9 +58,9 @@ def init_debug():
     """
     if state["verbose"]:
         print("Initialize yunetas in Debug mode")
-    setup_yuneta_environment(True)
-    process_directories(DIRECTORIES, "Debug")
-    process_directories(["."], "Debug")
+    setup_yuneta_environment(True, False)
+    process_directories(DIRECTORIES, "Debug", False)
+    process_directories(["."], "Debug", False)
 
     if state["verbose"]:
         print("Done")
@@ -73,9 +73,45 @@ def init_prod():
     """
     if state["verbose"]:
         print("Initialize yunetas in Production mode")
-    setup_yuneta_environment(True)
-    process_directories(DIRECTORIES, "RelWithDebInfo")
-    process_directories(["."], "Debug")
+    setup_yuneta_environment(True, False)
+    process_directories(DIRECTORIES, "RelWithDebInfo", False)
+    process_directories(["."], "RelWithDebInfo", False)
+
+    if state["verbose"]:
+        print("Done")
+
+
+# TODO need to compile with musl
+# sudo ln -s /usr/include/x86_64-linux-gnu/asm /usr/include/x86_64-linux-musl
+# sudo ln -s /usr/include/linux /usr/include/x86_64-linux-musl
+# sudo ln -s /usr/include/asm-generic /usr/include/x86_64-linux-musl
+
+
+@app.command()
+def init_debug_static():
+    """
+    Initialize yunetas in Debug mode as static
+    """
+    if state["verbose"]:
+        print("Initialize yunetas in Debug mode as static")
+    setup_yuneta_environment(True, True)
+    process_directories(DIRECTORIES, "Debug", True)
+    process_directories(["."], "Debug", True)
+
+    if state["verbose"]:
+        print("Done")
+
+
+@app.command()
+def init_prod_static():
+    """
+    Initialize yunetas in Production mode as static
+    """
+    if state["verbose"]:
+        print("Initialize yunetas in Production mode as static")
+    setup_yuneta_environment(True, True)
+    process_directories(DIRECTORIES, "RelWithDebInfo", True)
+    process_directories(["."], "RelWithDebInfo", True)
 
     if state["verbose"]:
         print("Done")
@@ -88,7 +124,7 @@ def build():
     """
     if state["verbose"]:
         print("Building and installing yunetas")
-    setup_yuneta_environment()
+    setup_yuneta_environment(False, False)
     process_build_command(DIRECTORIES, ["make", "install"])  # Replace with ["ninja", "install"] if using Ninja
     if state["verbose"]:
         print("Done")
@@ -107,15 +143,15 @@ def clean():
 
 
 @app.command()
-def test():
+def test_debug():
     """
-    Run ctest in yunetas
+    Run ctest in yunetas in Debug mode
     """
     if state["verbose"]:
-        print("Run ctest in yunetas")
+        print("Run ctest in yunetas in debug mode")
 
-    setup_yuneta_environment()
-    process_directories(["."], "Debug")
+    setup_yuneta_environment(False, False)
+    process_directories(["."], "Debug", False)
     ret = process_build_command(["."], ["make"])
     if ret == 0:
         process_build_command(["."], ["ctest"])
@@ -125,18 +161,54 @@ def test():
 
 
 @app.command()
-def test_verbose():
+def test_prod():
     """
-    Run ctest --verbose in yunetas
+    Run ctest in yunetas in Production mode
     """
     if state["verbose"]:
-        print("Run ctest --verbose in yunetas")
+        print("Run ctest in yunetas in production mode")
 
-    setup_yuneta_environment()
-    process_directories(["."], "Debug")
+    setup_yuneta_environment(False, False)
+    process_directories(["."], "RelWithDebInfo", False)
     ret = process_build_command(["."], ["make"])
     if ret == 0:
-        process_build_command(["."], ["ctest", "--verbose"])
+        process_build_command(["."], ["ctest"])
+
+    if state["verbose"]:
+        print("Done")
+
+
+@app.command()
+def test_debug_static():
+    """
+    Run ctest in yunetas in Debug mode as static
+    """
+    if state["verbose"]:
+        print("Run ctest in yunetas in debug mode as static")
+
+    setup_yuneta_environment(False, True)
+    process_directories(["."], "Debug", True)
+    ret = process_build_command(["."], ["make"])
+    if ret == 0:
+        process_build_command(["."], ["ctest"])
+
+    if state["verbose"]:
+        print("Done")
+
+
+@app.command()
+def test_prod_static():
+    """
+    Run ctest in yunetas in Production mode as static
+    """
+    if state["verbose"]:
+        print("Run ctest in yunetas in production mode as static")
+
+    setup_yuneta_environment(False, True)
+    process_directories(["."], "RelWithDebInfo", True)
+    ret = process_build_command(["."], ["make"])
+    if ret == 0:
+        process_build_command(["."], ["ctest"])
 
     if state["verbose"]:
         print("Done")
@@ -234,7 +306,7 @@ def is_file_outdated(source_file, target_file):
         return True  # Target file doesn't exist, needs to be created
     return os.path.getmtime(source_file) > os.path.getmtime(target_file)
 
-def setup_yuneta_environment(reset_outputs=False):
+def setup_yuneta_environment(reset_outputs=False, as_static=False):
     """
     Check and configure Yuneta environment variables, and prepare directories for generated files.
     Ensures YUNETAS_BASE and its required files exist.
@@ -243,10 +315,10 @@ def setup_yuneta_environment(reset_outputs=False):
     #--------------------------------------------------#
     # Check if YUNETA_VERSION and .config files exist in YUNETAS_BASE
     #--------------------------------------------------#
-    yuneta_version_path = os.path.join(YUNETAS_BASE, "YUNETA_VERSION")
+    yuneta_version_path2 = os.path.join(YUNETAS_BASE, "YUNETA_VERSION")
     yuneta_config_path = os.path.join(YUNETAS_BASE, ".config")
 
-    if not os.path.isfile(yuneta_version_path):
+    if not os.path.isfile(yuneta_version_path2):
         print(f"Error: YUNETA_VERSION file not found in '{YUNETAS_BASE}'.")
         sys.exit(1)
 
@@ -258,15 +330,30 @@ def setup_yuneta_environment(reset_outputs=False):
     # Get parent directory of YUNETAS_BASE and set up output directories
     #--------------------------------------------------#
     yunetas_parent_base_dir = os.path.dirname(YUNETAS_BASE)
-    outputs_dir = os.path.join(yunetas_parent_base_dir, "outputs")
+    if as_static:
+        outputs_dir = os.path.join(yunetas_parent_base_dir, "outputs_static")
+    else:
+        outputs_dir = os.path.join(yunetas_parent_base_dir, "outputs")
     inc_dest_dir = os.path.join(outputs_dir, "include")
+    lib_dest_dir = os.path.join(outputs_dir, "lib")
+    bin_dest_dir = os.path.join(outputs_dir, "bin")
+    yunos_dest_dir = os.path.join(outputs_dir, "yunos")
 
     try:
         if reset_outputs:
             if os.path.isdir(inc_dest_dir):
                 shutil.rmtree(inc_dest_dir)
+            if os.path.isdir(lib_dest_dir):
+                shutil.rmtree(lib_dest_dir)
+            if os.path.isdir(bin_dest_dir):
+                shutil.rmtree(bin_dest_dir)
+            if os.path.isdir(yunos_dest_dir):
+                shutil.rmtree(yunos_dest_dir)
         # Create 'outputs/include' directory if it doesn't exist
         os.makedirs(inc_dest_dir, exist_ok=True)
+        os.makedirs(lib_dest_dir, exist_ok=True)
+        os.makedirs(bin_dest_dir, exist_ok=True)
+        os.makedirs(yunos_dest_dir, exist_ok=True)
     except OSError as e:
         print(f"Error: Unable to create directory '{inc_dest_dir}'. {e}")
         sys.exit(1)
@@ -275,20 +362,21 @@ def setup_yuneta_environment(reset_outputs=False):
     # Generate yuneta_version.h from YUNETA_VERSION
     #--------------------------------------------------#
     yuneta_version_h_path = os.path.join(inc_dest_dir, "yuneta_version.h")
-    if is_file_outdated(yuneta_version_path, yuneta_version_h_path):
-        version_header_content = """\
+    if is_file_outdated(yuneta_version_path2, yuneta_version_h_path):
+        year = datetime.now().year
+        version_header_content = f"""\
 /*
  *  Yuneta Version
  *  Automatically generated file. DO NOT EDIT.
  *  Set version in YUNETA_VERSION file.
  *
- *  Copyright (c) 2024, ArtGins
+ *  Copyright (c) {year} ArtGins
  */
 #pragma once
 
 """
         try:
-            version_header_content += kconfig2include(yuneta_version_path)
+            version_header_content += kconfig2include(yuneta_version_path2)
 
             # Write the yuneta_version.h file
             with open(yuneta_version_h_path, "w") as header_file:
@@ -330,7 +418,7 @@ def setup_yuneta_environment(reset_outputs=False):
 
     print(f"Setup completed successfully:")
     print(f"  - YUNETAS_BASE: {YUNETAS_BASE}")
-    print(f"  - YUNETA_VERSION: {yuneta_version_path}")
+    print(f"  - YUNETA_VERSION: {yuneta_version_path2}")
     print(f"  - .config: {yuneta_config_path}")
     print(f"  - Include directory: {inc_dest_dir}")
 
@@ -353,8 +441,6 @@ def get_compiler_from_config():
                 return "clang"
             elif line == "CONFIG_USE_COMPILER_GCC=y":
                 return "gcc"
-            elif line == "CONFIG_USE_COMPILER_MUSL=y":
-                return "musl-gcc"
 
     return None
 
@@ -362,7 +448,7 @@ def get_compiler_from_config():
 #--------------------------------------------------#
 #   Process directories and run cmake
 #--------------------------------------------------#
-def process_directories(directories: List[str], build_type: str):
+def process_directories(directories: List[str], build_type: str, as_static: bool):
     """
     Process directories and execute cmake with build type and detected compiler
 
@@ -374,6 +460,8 @@ def process_directories(directories: List[str], build_type: str):
     if not base_path.is_dir():
         print(f"[red]Error: YUNETAS_BASE '{YUNETAS_BASE}' does not exist or is not a directory.[/red]")
         raise typer.Exit(code=1)
+
+    musl_toolchain = f"{base_path}/tools/cmake/musl-toolchain.cmake"
 
     #--------------------------------------------------#
     #   Detect compiler from .config (Clang, GCC, musl)
@@ -403,8 +491,8 @@ def process_directories(directories: List[str], build_type: str):
                         "cmake",
                         f"-DCMAKE_BUILD_TYPE={build_type}",
                     ]
-                    if cc:
-                        cmake_command.append(f"-DCMAKE_C_COMPILER={cc}")
+                    if as_static:
+                        cmake_command.append(f"-DCMAKE_TOOLCHAIN_FILE={musl_toolchain}")
                     cmake_command.append("..")
 
                     print(f"[blue]Running cmake command in {build_dir}[/blue]")
@@ -422,6 +510,10 @@ def process_build_command(directories: List[str], command: List[str]):
         directories (List[str]): List of directories to process.
         command (List[str]): The build command to execute as a list (e.g., ["make", "install"]).
     """
+    # cc = get_compiler_from_config()
+    # env = os.environ.copy()
+    # env['CC'] = cc
+
     ret = 0
     base_path = Path(YUNETAS_BASE)
     if not base_path.is_dir():
@@ -445,7 +537,7 @@ def process_build_command(directories: List[str], command: List[str]):
                 try:
                     # Execute the specified build command
                     print(f"[blue]Running '{' '.join(command)}' in {build_dir}[/blue]")
-                    subprocess.run(command, cwd=build_dir, check=True)
+                    subprocess.run(command, cwd=build_dir, check=True) #, env=env)
                 except subprocess.CalledProcessError as e:
                     print(f"[red]Error occurred while running '{' '.join(command)}' in {build_dir}: {e}[/red]")
                     ret = -1
