@@ -21,3 +21,11 @@ read .config to get what compiler to use (CLANG, GCC, MUSL)
 
 ## v0.3.7 -- 2025-06-16
 Fix if directory to remove not exist
+
+## v0.3.8 -- 2025-06-22
+generate static libraries
+Now you can generate static or dynamic version of Yunetas libraries and tools.
+Installing in `outputs_static` or `outputs` directory.
+And new commands `init-prod-static` and `init-debug-static`
+The static version are built with:
+    cmake -DCMAKE_TOOLCHAIN_FILE={base_path}/tools/cmake/musl-toolchain.cmake
