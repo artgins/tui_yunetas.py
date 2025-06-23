@@ -35,3 +35,6 @@ In tests do "make install"
 
 ## v0.4.1 -- 23-Jun-2025
 Simplify tests commands
+
+## v0.4.2 -- 23-Jun-2025
+Simplify init commands, get configuration from .config (menuconfig)

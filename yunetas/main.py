@@ -54,7 +54,7 @@ console = Console()
 @app.command()
 def init():
     """
-    Initialize yunetas
+    Initialize yunetas, create build directories and get compiler and build type from .config (menuconfig)
     """
     if state["verbose"]:
         print("Initialize yunetas in Production mode")
@@ -350,7 +350,7 @@ def get_compiler_from_config():
                 return "clang"
             elif line == "CONFIG_USE_COMPILER_GCC=y":
                 return "gcc"
-            elif line == "CONFIG_USE_COMPILER_MUSL = y":
+            elif line == "CONFIG_USE_COMPILER_MUSL=y":
                 return "musl"
 
     return None
