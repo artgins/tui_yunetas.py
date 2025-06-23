@@ -125,7 +125,7 @@ def build():
     if state["verbose"]:
         print("Building and installing yunetas")
     setup_yuneta_environment(False, False)
-    process_build_command(DIRECTORIES, ["make", "install"])  # Replace with ["ninja", "install"] if using Ninja
+    process_build_command(DIRECTORIES, ["make", "install"])
     if state["verbose"]:
         print("Done")
 
@@ -137,75 +137,20 @@ def clean():
     """
     if state["verbose"]:
         print("Cleaning up build directories in yunetas")
-    process_build_command(DIRECTORIES, ["make", "clean"])  # Replace with ["ninja", "clean"] if using Ninja
+    process_build_command(DIRECTORIES, ["make", "clean"])
     if state["verbose"]:
         print("Done")
 
 
 @app.command()
-def test_debug():
+def test():
     """
-    Run ctest in yunetas in Debug mode
+    Run ctest in yunetas
     """
     if state["verbose"]:
         print("Run ctest in yunetas in debug mode")
 
-    setup_yuneta_environment(False, False)
-    process_directories(["."], "Debug", False)
-    ret = process_build_command(["."], ["make", "install"])
-    if ret == 0:
-        process_build_command(["."], ["ctest"])
-
-    if state["verbose"]:
-        print("Done")
-
-
-@app.command()
-def test_prod():
-    """
-    Run ctest in yunetas in Production mode
-    """
-    if state["verbose"]:
-        print("Run ctest in yunetas in production mode")
-
-    setup_yuneta_environment(False, False)
-    process_directories(["."], "RelWithDebInfo", False)
-    ret = process_build_command(["."], ["make", "install"])
-    if ret == 0:
-        process_build_command(["."], ["ctest"])
-
-    if state["verbose"]:
-        print("Done")
-
-
-@app.command()
-def test_debug_static():
-    """
-    Run ctest in yunetas in Debug mode as static
-    """
-    if state["verbose"]:
-        print("Run ctest in yunetas in debug mode as static")
-
-    setup_yuneta_environment(False, True)
-    process_directories(["."], "Debug", True)
-    ret = process_build_command(["."], ["make", "install"])
-    if ret == 0:
-        process_build_command(["."], ["ctest"])
-
-    if state["verbose"]:
-        print("Done")
-
-
-@app.command()
-def test_prod_static():
-    """
-    Run ctest in yunetas in Production mode as static
-    """
-    if state["verbose"]:
-        print("Run ctest in yunetas in production mode as static")
-
-    setup_yuneta_environment(False, True)
-    process_directories(["."], "RelWithDebInfo", True)
+    process_build_command(DIRECTORIES, ["make", "install"])
     ret = process_build_command(["."], ["make", "install"])
     if ret == 0:
         process_build_command(["."], ["ctest"])
