@@ -152,7 +152,7 @@ def test_debug():
 
     setup_yuneta_environment(False, False)
     process_directories(["."], "Debug", False)
-    ret = process_build_command(["."], ["make"])
+    ret = process_build_command(["."], ["make", "install"])
     if ret == 0:
         process_build_command(["."], ["ctest"])
 
@@ -170,7 +170,7 @@ def test_prod():
 
     setup_yuneta_environment(False, False)
     process_directories(["."], "RelWithDebInfo", False)
-    ret = process_build_command(["."], ["make"])
+    ret = process_build_command(["."], ["make", "install"])
     if ret == 0:
         process_build_command(["."], ["ctest"])
 
@@ -188,7 +188,7 @@ def test_debug_static():
 
     setup_yuneta_environment(False, True)
     process_directories(["."], "Debug", True)
-    ret = process_build_command(["."], ["make"])
+    ret = process_build_command(["."], ["make", "install"])
     if ret == 0:
         process_build_command(["."], ["ctest"])
 
@@ -206,7 +206,7 @@ def test_prod_static():
 
     setup_yuneta_environment(False, True)
     process_directories(["."], "RelWithDebInfo", True)
-    ret = process_build_command(["."], ["make"])
+    ret = process_build_command(["."], ["make", "install"])
     if ret == 0:
         process_build_command(["."], ["ctest"])
 

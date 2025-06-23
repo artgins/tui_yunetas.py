@@ -29,3 +29,6 @@ Installing in `outputs_static` or `outputs` directory.
 And new commands `init-prod-static` and `init-debug-static`
 The static version are built with:
     cmake -DCMAKE_TOOLCHAIN_FILE={base_path}/tools/cmake/musl-toolchain.cmake
+
+## v0.3.9 -- 23-Jun-2025
+In tests do "make install"
