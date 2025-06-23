@@ -52,30 +52,15 @@ console = Console()
 
 
 @app.command()
-def init_debug():
+def init():
     """
-    Initialize yunetas in Debug mode
-    """
-    if state["verbose"]:
-        print("Initialize yunetas in Debug mode")
-    setup_yuneta_environment(True, False)
-    process_directories(DIRECTORIES, "Debug", False)
-    process_directories(["."], "Debug", False)
-
-    if state["verbose"]:
-        print("Done")
-
-
-@app.command()
-def init_prod():
-    """
-    Initialize yunetas in Production mode
+    Initialize yunetas
     """
     if state["verbose"]:
         print("Initialize yunetas in Production mode")
-    setup_yuneta_environment(True, False)
-    process_directories(DIRECTORIES, "RelWithDebInfo", False)
-    process_directories(["."], "RelWithDebInfo", False)
+    setup_yuneta_environment(True)
+    process_directories(DIRECTORIES)
+    process_directories(["."])
 
     if state["verbose"]:
         print("Done")
@@ -88,43 +73,13 @@ def init_prod():
 
 
 @app.command()
-def init_debug_static():
-    """
-    Initialize yunetas in Debug mode as static
-    """
-    if state["verbose"]:
-        print("Initialize yunetas in Debug mode as static")
-    setup_yuneta_environment(True, True)
-    process_directories(DIRECTORIES, "Debug", True)
-    process_directories(["."], "Debug", True)
-
-    if state["verbose"]:
-        print("Done")
-
-
-@app.command()
-def init_prod_static():
-    """
-    Initialize yunetas in Production mode as static
-    """
-    if state["verbose"]:
-        print("Initialize yunetas in Production mode as static")
-    setup_yuneta_environment(True, True)
-    process_directories(DIRECTORIES, "RelWithDebInfo", True)
-    process_directories(["."], "RelWithDebInfo", True)
-
-    if state["verbose"]:
-        print("Done")
-
-
-@app.command()
 def build():
     """
     Build and install yunetas.
     """
     if state["verbose"]:
         print("Building and installing yunetas")
-    setup_yuneta_environment(False, False)
+    setup_yuneta_environment(False)
     process_build_command(DIRECTORIES, ["make", "install"])
     if state["verbose"]:
         print("Done")
@@ -251,7 +206,7 @@ def is_file_outdated(source_file, target_file):
         return True  # Target file doesn't exist, needs to be created
     return os.path.getmtime(source_file) > os.path.getmtime(target_file)
 
-def setup_yuneta_environment(reset_outputs=False, as_static=False):
+def setup_yuneta_environment(reset_outputs=False):
     """
     Check and configure Yuneta environment variables, and prepare directories for generated files.
     Ensures YUNETAS_BASE and its required files exist.
@@ -270,6 +225,15 @@ def setup_yuneta_environment(reset_outputs=False, as_static=False):
     if not os.path.isfile(yuneta_config_path):
         print(f"Error: .config file not found in '{YUNETAS_BASE}'.")
         sys.exit(1)
+
+
+    #--------------------------------------------------#
+    #   Detect compiler from .config (Clang, GCC, musl)
+    #--------------------------------------------------#
+    compiler = get_compiler_from_config()
+    as_static = False
+    if compiler == "musl":
+        as_static = True
 
     #--------------------------------------------------#
     # Get parent directory of YUNETAS_BASE and set up output directories
@@ -386,6 +350,32 @@ def get_compiler_from_config():
                 return "clang"
             elif line == "CONFIG_USE_COMPILER_GCC=y":
                 return "gcc"
+            elif line == "CONFIG_USE_COMPILER_MUSL = y":
+                return "musl"
+
+    return None
+
+
+#--------------------------------------------------#
+#   Detect build type from .config
+#--------------------------------------------------#
+def get_build_type_from_config():
+    """
+    Parse .config and return build type based on CONFIG_BUILD_TYPE_*
+    """
+    config_path = os.path.join(YUNETAS_BASE, ".config")
+    if not os.path.isfile(config_path):
+        return None
+
+    with open(config_path, "r") as f:
+        for line in f:
+            line = line.strip()
+            if line == "CONFIG_BUILD_TYPE_RELEASE=y":
+                return "RelWithDebInfo"
+            elif line == "CONFIG_BUILD_TYPE_DEBUG=y":
+                return "Debug"
+            else:
+                return "RelWithDebInfo"
 
     return None
 
@@ -393,13 +383,12 @@ def get_compiler_from_config():
 #--------------------------------------------------#
 #   Process directories and run cmake
 #--------------------------------------------------#
-def process_directories(directories: List[str], build_type: str, as_static: bool):
+def process_directories(directories: List[str]):
     """
     Process directories and execute cmake with build type and detected compiler
 
     Args:
         directories (List[str]): List of directories to process.
-        build_type (str): Build type (Debug or RelWithDebInfo).
     """
     base_path = Path(YUNETAS_BASE)
     if not base_path.is_dir():
@@ -411,7 +400,19 @@ def process_directories(directories: List[str], build_type: str, as_static: bool
     #--------------------------------------------------#
     #   Detect compiler from .config (Clang, GCC, musl)
     #--------------------------------------------------#
-    cc = get_compiler_from_config()
+    compiler = get_compiler_from_config()
+    build_type = get_build_type_from_config()
+    CC = None
+    as_static = False
+    if compiler == "clang":
+        CC = "/usr/bin/clang"
+        as_static = False
+    elif compiler == "gcc":
+        CC = "/usr/bin/gcc"
+        as_static = False
+    elif compiler == "musl":
+        CC = "/usr/local/bin/musl-gcc"
+        as_static = True
 
     for directory in directories:
         path_pattern = base_path / directory
@@ -435,6 +436,7 @@ def process_directories(directories: List[str], build_type: str, as_static: bool
                     cmake_command = [
                         "cmake",
                         f"-DCMAKE_BUILD_TYPE={build_type}",
+                        f"-DCMAKE_C_COMPILER={CC}",
                     ]
                     if as_static:
                         cmake_command.append(f"-DCMAKE_TOOLCHAIN_FILE={musl_toolchain}")
@@ -455,9 +457,6 @@ def process_build_command(directories: List[str], command: List[str]):
         directories (List[str]): List of directories to process.
         command (List[str]): The build command to execute as a list (e.g., ["make", "install"]).
     """
-    # cc = get_compiler_from_config()
-    # env = os.environ.copy()
-    # env['CC'] = cc
 
     ret = 0
     base_path = Path(YUNETAS_BASE)
