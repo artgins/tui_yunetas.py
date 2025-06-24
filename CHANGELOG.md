@@ -38,3 +38,6 @@ Simplify tests commands
 
 ## v0.4.2 -- 23-Jun-2025
 Simplify init commands, get configuration from .config (menuconfig)
+
+## v0.4.3 -- 24-Jun-2025
+Use /usr/bin/musl-gcc instead of /usr/local/bin/musl-gcc

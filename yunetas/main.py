@@ -411,7 +411,7 @@ def process_directories(directories: List[str]):
         CC = "/usr/bin/gcc"
         as_static = False
     elif compiler == "musl":
-        CC = "/usr/local/bin/musl-gcc"
+        CC = "/usr/bin/musl-gcc"
         as_static = True
 
     for directory in directories:
