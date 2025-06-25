@@ -32,6 +32,7 @@ if not os.path.isdir(YUNETAS_BASE):
 # Directories to process
 DIRECTORIES = [
     "kernel/c/gobj-c",
+    "kernel/c/libjwt",
     "kernel/c/ytls",
     "kernel/c/yev_loop",
     "kernel/c/timeranger2",

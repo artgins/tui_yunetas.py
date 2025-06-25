@@ -41,3 +41,6 @@ Simplify init commands, get configuration from .config (menuconfig)
 
 ## v0.4.3 -- 24-Jun-2025
 Use /usr/bin/musl-gcc instead of /usr/local/bin/musl-gcc
+
+## v0.4.4 -- 25-Jun-2025
+Add directory "kernel/c/libjwt"
