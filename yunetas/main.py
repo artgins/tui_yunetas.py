@@ -375,8 +375,6 @@ def get_build_type_from_config():
                 return "RelWithDebInfo"
             elif line == "CONFIG_BUILD_TYPE_DEBUG=y":
                 return "Debug"
-            else:
-                return "RelWithDebInfo"
 
     return None
 
@@ -402,7 +400,14 @@ def process_directories(directories: List[str]):
     #   Detect compiler from .config (Clang, GCC, musl)
     #--------------------------------------------------#
     compiler = get_compiler_from_config()
+    if compiler is None:
+        print(f"[red]Error: No compiler found [/red]")
+        raise typer.Exit(code=1)
     build_type = get_build_type_from_config()
+    if build_type is None:
+        print(f"[red]Error: No build type found [/red]")
+        raise typer.Exit(code=1)
+
     CC = None
     as_static = False
     if compiler == "clang":
@@ -443,7 +448,7 @@ def process_directories(directories: List[str]):
                         cmake_command.append(f"-DCMAKE_TOOLCHAIN_FILE={musl_toolchain}")
                     cmake_command.append("..")
 
-                    print(f"[blue]Running cmake command in {build_dir}[/blue]")
+                    print(f"[blue]Running cmake command '{cmake_command}' in '{build_dir}'[/blue]")
                     subprocess.run(cmake_command, cwd=build_dir, check=True)
 
                 except subprocess.CalledProcessError as e:
