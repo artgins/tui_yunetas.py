@@ -44,3 +44,6 @@ Use /usr/bin/musl-gcc instead of /usr/local/bin/musl-gcc
 
 ## v0.4.4 -- 25-Jun-2025
 Add directory "kernel/c/libjwt"
+
+## v0.5.0 -- 27-Jun-2025
+Fix compiler type
