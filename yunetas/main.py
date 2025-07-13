@@ -107,6 +107,8 @@ def test():
         print("Run ctest in yunetas in debug mode")
 
     process_build_command(DIRECTORIES, ["make", "install"])
+    process_build_command(["."], ["make", "install"])
+    process_build_command(["."], ["make", "clean"])
     ret = process_build_command(["."], ["make", "install"])
     if ret == 0:
         process_build_command(["."], ["ctest"])

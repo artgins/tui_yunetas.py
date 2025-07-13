@@ -47,3 +47,6 @@ Add directory "kernel/c/libjwt"
 
 ## v0.5.0 -- 27-Jun-2025
 Fix compiler type
+
+## v0.5.1 -- 13-Jul-2025
+In test do make install, make clean, make install
