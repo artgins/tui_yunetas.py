@@ -377,6 +377,10 @@ def get_build_type_from_config():
                 return "RelWithDebInfo"
             elif line == "CONFIG_BUILD_TYPE_DEBUG=y":
                 return "Debug"
+            elif line == "CONFIG_BUILD_TYPE_RELWITHDEBINFO=y":
+                return "Debug"
+            elif line == "CONFIG_BUILD_TYPE_MINSIZEREL=y":
+                return "Debug"
 
     return None
 

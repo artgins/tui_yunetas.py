@@ -50,3 +50,6 @@ Fix compiler type
 
 ## v0.5.1 -- 13-Jul-2025
 In test do make install, make clean, make install
+
+## v0.5.2 -- 16-Jul-2025
+Add all build types of cmake
