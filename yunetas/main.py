@@ -374,13 +374,13 @@ def get_build_type_from_config():
         for line in f:
             line = line.strip()
             if line == "CONFIG_BUILD_TYPE_RELEASE=y":
-                return "RelWithDebInfo"
+                return "Release"
             elif line == "CONFIG_BUILD_TYPE_DEBUG=y":
                 return "Debug"
             elif line == "CONFIG_BUILD_TYPE_RELWITHDEBINFO=y":
-                return "Debug"
+                return "RelWithDebInfo"
             elif line == "CONFIG_BUILD_TYPE_MINSIZEREL=y":
-                return "Debug"
+                return "MinSizeRel"
 
     return None
 
