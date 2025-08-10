@@ -56,3 +56,6 @@ Add all build types of cmake
 
 ## v0.5.3 -- 16-Jul-2025
 Fix cmake build type names
+
+## v0.5.4 -- 10-Ago-2025
+Add common directory
