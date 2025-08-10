@@ -38,7 +38,6 @@ DIRECTORIES = [
     "kernel/c/timeranger2",
     "kernel/c/root-linux",
     "kernel/c/root-esp32",
-    "common/c/*",
     "modules/c/*",
     "stress/c/*",
     "utils/c/*",

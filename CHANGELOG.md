@@ -59,3 +59,6 @@ Fix cmake build type names
 
 ## v0.5.4 -- 10-Ago-2025
 Add common directory
+
+## v0.5.5 -- 10-Ago-2025
+Remove common directory
