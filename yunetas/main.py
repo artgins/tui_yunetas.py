@@ -253,21 +253,16 @@ def setup_yuneta_environment(reset_outputs=False):
 
     try:
         if reset_outputs:
-            if os.path.isdir(inc_dest_dir):
-                shutil.rmtree(inc_dest_dir)
-            if os.path.isdir(lib_dest_dir):
-                shutil.rmtree(lib_dest_dir)
-            if os.path.isdir(bin_dest_dir):
-                shutil.rmtree(bin_dest_dir)
-            if os.path.isdir(yunos_dest_dir):
-                shutil.rmtree(yunos_dest_dir)
+            if os.path.isdir(outputs_dir):
+                shutil.rmtree(outputs_dir)
         # Create 'outputs/include' directory if it doesn't exist
+        os.makedirs(outputs_dir, exist_ok=True)
         os.makedirs(inc_dest_dir, exist_ok=True)
         os.makedirs(lib_dest_dir, exist_ok=True)
         os.makedirs(bin_dest_dir, exist_ok=True)
         os.makedirs(yunos_dest_dir, exist_ok=True)
     except OSError as e:
-        print(f"Error: Unable to create directory '{inc_dest_dir}'. {e}")
+        print(f"Error: Unable to create directories '{outputs_dir}'. {e}")
         sys.exit(1)
 
     #--------------------------------------------------#
