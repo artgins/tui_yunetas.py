@@ -11,23 +11,51 @@ import subprocess
 import shutil
 from datetime import datetime
 
-# Check if YUNETAS_BASE is set, or derive it from the current directory if YUNETA_VERSION exists
-YUNETAS_BASE = os.getenv("YUNETAS_BASE")
-current_dir = os.getcwd()
-yuneta_version_path = os.path.join(current_dir, "YUNETA_VERSION")
+# # Check if YUNETAS_BASE is set, or derive it from the current directory if YUNETA_VERSION exists
+# YUNETAS_BASE = os.getenv("YUNETAS_BASE")
+# current_dir = os.getcwd()
+# yuneta_version_path = os.path.join(current_dir, "YUNETA_VERSION")
+#
+# if not YUNETAS_BASE:
+#     if os.path.isfile(yuneta_version_path):
+#         YUNETAS_BASE = current_dir
+#         print(f"[yellow]YUNETAS_BASE not set. Using current directory as YUNETAS_BASE: {YUNETAS_BASE}[/yellow]")
+#     else:
+#         print("[red]Error: YUNETAS_BASE environment variable is not set and YUNETA_VERSION file not found in the current directory.[/red]")
+#         sys.exit(1)
+#
+# if not os.path.isdir(YUNETAS_BASE):
+#     print(f"[red]Error: YUNETAS_BASE '{YUNETAS_BASE}' does not exist or is not a directory.[/red]")
+#     sys.exit(1)
+
+
+# 1) ENV, 2) /yuneta/development/yunetas, 3) /yuneta/development, else fail
+env_base = os.environ.get("YUNETAS_BASE")
+
+candidates = []
+if env_base:
+    candidates.append(env_base)
+candidates += ["/yuneta/development/yunetas", "/yuneta/development"]
+
+YUNETAS_BASE = next((p for p in candidates if p and os.path.isdir(p)), None)
+
+# Warn if ENV was set but invalid
+if env_base and (not os.path.isdir(env_base)):
+    print(f"[yellow]Warning: YUNETAS_BASE is set to '{env_base}' but it is not a directory. Falling back...[/yellow]")
 
 if not YUNETAS_BASE:
-    if os.path.isfile(yuneta_version_path):
-        YUNETAS_BASE = current_dir
-        print(f"[yellow]YUNETAS_BASE not set. Using current directory as YUNETAS_BASE: {YUNETAS_BASE}[/yellow]")
-    else:
-        print("[red]Error: YUNETAS_BASE environment variable is not set and YUNETA_VERSION file not found in the current directory.[/red]")
-        sys.exit(1)
-
-if not os.path.isdir(YUNETAS_BASE):
-    print(f"[red]Error: YUNETAS_BASE '{YUNETAS_BASE}' does not exist or is not a directory.[/red]")
+    print("[red]Error: Could not determine YUNETAS_BASE. "
+          "Set the YUNETAS_BASE environment variable to a valid directory, "
+          "or ensure /yuneta/development[/yunetas] exists.[/red]", file=sys.stderr)
     sys.exit(1)
 
+print(f"[green]Using YUNETAS_BASE: {YUNETAS_BASE}[/green]")
+
+# If you also want to verify a specific file exists (like the CMake case):
+# required = os.path.join(YUNETAS_BASE, "tools", "cmake", "project.cmake")
+# if not os.path.isfile(required):
+#     print(f"[red]Error: Missing required file: {required}[/red]", file=sys.stderr)
+#     sys.exit(1)
 
 # Directories to process
 DIRECTORIES = [
@@ -241,11 +269,11 @@ def setup_yuneta_environment(reset_outputs=False):
     #--------------------------------------------------#
     # Get parent directory of YUNETAS_BASE and set up output directories
     #--------------------------------------------------#
-    yunetas_parent_base_dir = os.path.dirname(YUNETAS_BASE)
+    # yunetas_parent_base_dir = os.path.dirname(YUNETAS_BASE)
     if as_static:
-        outputs_dir = os.path.join(yunetas_parent_base_dir, "outputs_static")
+        outputs_dir = os.path.join(YUNETAS_BASE, "outputs_static")
     else:
-        outputs_dir = os.path.join(yunetas_parent_base_dir, "outputs")
+        outputs_dir = os.path.join(YUNETAS_BASE, "outputs")
     inc_dest_dir = os.path.join(outputs_dir, "include")
     lib_dest_dir = os.path.join(outputs_dir, "lib")
     bin_dest_dir = os.path.join(outputs_dir, "bin")
