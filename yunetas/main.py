@@ -139,7 +139,8 @@ def test():
     process_build_command(["."], ["make", "clean"])
     ret = process_build_command(["."], ["make", "install"])
     if ret == 0:
-        process_build_command(["."], ["ctest"])
+        filename = datetime.now().isoformat().replace(":", "-") + ".txt"
+        process_build_command(["."], ["ctest", "--output-log", filename])
 
     if state["verbose"]:
         print("Done")
