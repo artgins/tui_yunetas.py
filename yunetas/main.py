@@ -39,9 +39,13 @@ candidates += ["/yuneta/development/yunetas", "/yuneta/development"]
 
 YUNETAS_BASE = next((p for p in candidates if p and os.path.isdir(p)), None)
 
+final_messages = [f"\n[yellow]WARNING:[/yellow] Use [blue]menuconfig[/blue] to setup the file [green]'yuneta_config.h'[/green] \n"]
+
 # Warn if ENV was set but invalid
 if env_base and (not os.path.isdir(env_base)):
-    print(f"[yellow]Warning: YUNETAS_BASE is set to '{env_base}' but it is not a directory. Falling back...[/yellow]")
+    msg = f"[yellow]Warning: YUNETAS_BASE is set to '{env_base}' but it is not a directory. Falling back...[/yellow]"
+    print(msg)
+    final_messages.append(msg)
 
 if not YUNETAS_BASE:
     print("[red]Error: Could not determine YUNETAS_BASE. "
@@ -49,7 +53,9 @@ if not YUNETAS_BASE:
           "or ensure /yuneta/development[/yunetas] exists.[/red]", file=sys.stderr)
     sys.exit(1)
 
-print(f"[green]Using YUNETAS_BASE: {YUNETAS_BASE}[/green]")
+msg = f"Using [green]YUNETAS_BASE[/green] at {YUNETAS_BASE}"
+print(msg)
+final_messages.append(msg)
 
 # If you also want to verify a specific file exists (like the CMake case):
 # required = os.path.join(YUNETAS_BASE, "tools", "cmake", "project.cmake")
@@ -76,7 +82,6 @@ DIRECTORIES = [
 app = typer.Typer(help="TUI for yunetas SDK")
 app.add_typer(app_venv, name="venv")
 
-state = {"verbose": False}
 console = Console()
 
 
@@ -85,14 +90,12 @@ def init():
     """
     Initialize yunetas, create build directories and get compiler and build type from .config (menuconfig)
     """
-    if state["verbose"]:
-        print("Initialize yunetas in Production mode")
     setup_yuneta_environment(True)
     process_directories(DIRECTORIES)
     process_directories(["."])
 
-    if state["verbose"]:
-        print("Done")
+    final_messages.append(f"\n[yellow]init[/yellow] done: created build directories, got compiler and build type from .config ([blue]menuconfig[/blue])\n")
+    print("\n".join(final_messages))
 
 
 # TODO need to compile with musl
@@ -106,12 +109,10 @@ def build():
     """
     Build and install yunetas.
     """
-    if state["verbose"]:
-        print("Building and installing yunetas")
     setup_yuneta_environment(False)
     process_build_command(DIRECTORIES, ["make", "install"])
-    if state["verbose"]:
-        print("Done")
+    final_messages.append(f"\n[yellow]build[/yellow] done.\n")
+    print("\n".join(final_messages))
 
 
 @app.command()
@@ -119,11 +120,9 @@ def clean():
     """
     Clean up build directories in yunetas.
     """
-    if state["verbose"]:
-        print("Cleaning up build directories in yunetas")
     process_build_command(DIRECTORIES, ["make", "clean"])
-    if state["verbose"]:
-        print("Done")
+    final_messages.append(f"\n[yellow]clean[/yellow] done.\n")
+    print("\n".join(final_messages))
 
 
 @app.command()
@@ -131,9 +130,6 @@ def test():
     """
     Run ctest in yunetas
     """
-    if state["verbose"]:
-        print("Run ctest in yunetas in debug mode")
-
     process_build_command(DIRECTORIES, ["make", "install"])
     process_build_command(["."], ["make", "install"])
     process_build_command(["."], ["make", "clean"])
@@ -141,9 +137,6 @@ def test():
     if ret == 0:
         filename = datetime.now().isoformat().replace(":", "-") + ".txt"
         process_build_command(["."], ["ctest", "--output-log", filename])
-
-    if state["verbose"]:
-        print("Done")
 
 
 def version_callback(value: bool):
@@ -317,7 +310,10 @@ def setup_yuneta_environment(reset_outputs=False):
             # Write the yuneta_version.h file
             with open(yuneta_version_h_path, "w") as header_file:
                 header_file.write(version_header_content)
-            print(f"Generated 'yuneta_version.h' at {yuneta_version_h_path}")
+            msg = f"Generated 'yuneta_version.h' at {yuneta_version_h_path}"
+            print(msg)
+            final_messages.append(msg)
+
         except Exception as e:
             print(f"Error: Unable to generate yuneta_version.h. {e}")
             sys.exit(1)
@@ -347,16 +343,32 @@ def setup_yuneta_environment(reset_outputs=False):
             # Write the yuneta_config.h file
             with open(yuneta_config_h_path, "w") as header_file:
                 header_file.write(config_header_content)
-            print(f"Generated 'yuneta_config.h' at {yuneta_config_h_path}")
+            msg = f"Generated 'yuneta_config.h' at {yuneta_config_h_path}"
+            print(msg)
+            final_messages.append(msg)
         except Exception as e:
             print(f"Error: Unable to generate yuneta_config.h. {e}")
             sys.exit(1)
 
-    print(f"Setup completed successfully:")
-    print(f"  - YUNETAS_BASE: {YUNETAS_BASE}")
-    print(f"  - YUNETA_VERSION: {yuneta_version_path2}")
-    print(f"  - .config: {yuneta_config_path}")
-    print(f"  - Include directory: {inc_dest_dir}")
+    msg = f"Setup completed successfully:"
+    print(msg)
+    final_messages.append(msg)
+
+    msg = f"  - YUNETAS_BASE: {YUNETAS_BASE}"
+    print(msg)
+    final_messages.append(msg)
+
+    msg = f"  - YUNETA_VERSION: {yuneta_version_path2}"
+    print(msg)
+    final_messages.append(msg)
+
+    msg = f"  - [green]'.config'[/green]: {yuneta_config_path}"
+    print(msg)
+    final_messages.append(msg)
+
+    msg = f"  - Include directory: {inc_dest_dir}"
+    print(msg)
+    final_messages.append(msg)
 
 
 #--------------------------------------------------#
