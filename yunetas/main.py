@@ -73,9 +73,9 @@ DIRECTORIES = [
     "kernel/c/root-linux",
     "kernel/c/root-esp32",
     "modules/c/*",
-    "stress/c/*",
     "utils/c/*",
     "yunos/c/*",
+    "stress/c/*",
 ]
 
 # Create the app.
