@@ -256,12 +256,18 @@ def setup_yuneta_environment(reset_outputs=False):
     #   Detect compiler from .config (Clang, GCC, musl)
     #--------------------------------------------------#
     compiler = get_compiler_from_config()
+    as_static = False
+    if compiler == "musl":
+        as_static = True
 
     #--------------------------------------------------#
     # Get parent directory of YUNETAS_BASE and set up output directories
     #--------------------------------------------------#
     # yunetas_parent_base_dir = os.path.dirname(YUNETAS_BASE)
-    outputs_dir = os.path.join(YUNETAS_BASE, "outputs")
+    if as_static:
+        outputs_dir = os.path.join(YUNETAS_BASE, "outputs_static")
+    else:
+        outputs_dir = os.path.join(YUNETAS_BASE, "outputs")
     inc_dest_dir = os.path.join(outputs_dir, "include")
     lib_dest_dir = os.path.join(outputs_dir, "lib")
     bin_dest_dir = os.path.join(outputs_dir, "bin")
@@ -445,12 +451,18 @@ def process_directories(directories: List[str]):
         raise typer.Exit(code=1)
 
     CC = None
+    as_static = False
     if compiler == "clang":
         CC = "/usr/bin/clang"
+        as_static = False
     elif compiler == "gcc":
         CC = "/usr/bin/gcc"
+        as_static = False
+    elif compiler == "musl":
+        CC = "/usr/bin/musl-gcc"
+        as_static = True
     else:
-        print(f"[red]Error: No compiler [/red]")
+        print(f"[red]Error: Compiler found [/red]")
         raise typer.Exit(code=1)
 
     for directory in directories:
@@ -477,6 +489,8 @@ def process_directories(directories: List[str]):
                         f"-DCMAKE_BUILD_TYPE={build_type}",
                         f"-DCMAKE_C_COMPILER={CC}",
                     ]
+                    if as_static:
+                        cmake_command.append(f"-DCMAKE_TOOLCHAIN_FILE={musl_toolchain}")
                     cmake_command.append("..")
 
                     print(f"[blue]Running cmake command '{cmake_command}' in '{build_dir}'[/blue]")
