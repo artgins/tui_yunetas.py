@@ -39,7 +39,9 @@ candidates += ["/yuneta/development/yunetas", "/yuneta/development"]
 
 YUNETAS_BASE = next((p for p in candidates if p and os.path.isdir(p)), None)
 
-final_messages = [f"\n[yellow]WARNING:[/yellow] Use [blue]menuconfig[/blue] to setup the file [green]'yuneta_config.h'[/green] \n"]
+final_messages = [f"\n[yellow]WARNING:[/yellow] The file [green]'yuneta_config.h'[/green] is created by init or build option but from options selected previously by [blue]menuconfig[/blue] utility \n"]
+
+compiler = ""
 
 # Warn if ENV was set but invalid
 if env_base and (not os.path.isdir(env_base)):
@@ -94,7 +96,9 @@ def init():
     process_directories(DIRECTORIES)
     process_directories(["."])
 
-    final_messages.append(f"\n[yellow]init[/yellow] done: created build directories, got compiler and build type from .config ([blue]menuconfig[/blue])\n")
+    global compiler
+    final_messages.append(f"\n[yellow]Compiler selected[/yellow]: [blue]{compiler}[/blue]\n")
+    final_messages.append(f"[yellow]init[/yellow] done: created build directories, got compiler and build type from .config ([blue]menuconfig[/blue])\n")
     print("\n".join(final_messages))
 
 
@@ -255,6 +259,7 @@ def setup_yuneta_environment(reset_outputs=False):
     #--------------------------------------------------#
     #   Detect compiler from .config (Clang, GCC, musl)
     #--------------------------------------------------#
+    global compiler
     compiler = get_compiler_from_config()
     as_static = False
     if compiler == "musl":
@@ -441,6 +446,7 @@ def process_directories(directories: List[str]):
     #--------------------------------------------------#
     #   Detect compiler from .config (Clang, GCC, musl)
     #--------------------------------------------------#
+    global compiler
     compiler = get_compiler_from_config()
     if compiler is None:
         print(f"[red]Error: No compiler found [/red]")
