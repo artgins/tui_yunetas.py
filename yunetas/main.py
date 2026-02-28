@@ -68,8 +68,8 @@ final_messages.append(msg)
 # Directories to process
 DIRECTORIES = [
     "kernel/c/gobj-c",
-    "kernel/c/libjwt",
     "kernel/c/ytls",
+    "kernel/c/libjwt",
     "kernel/c/yev_loop",
     "kernel/c/timeranger2",
     "kernel/c/root-linux",
