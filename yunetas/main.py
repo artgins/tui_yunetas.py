@@ -270,7 +270,7 @@ def setup_yuneta_environment(reset_outputs=False):
     #--------------------------------------------------#
     # yunetas_parent_base_dir = os.path.dirname(YUNETAS_BASE)
     if as_static:
-        outputs_dir = os.path.join(YUNETAS_BASE, "outputs_static")
+        outputs_dir = os.path.join(YUNETAS_BASE, "outputs_musl")
     else:
         outputs_dir = os.path.join(YUNETAS_BASE, "outputs")
     inc_dest_dir = os.path.join(outputs_dir, "include")
