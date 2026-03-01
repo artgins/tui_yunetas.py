@@ -261,15 +261,15 @@ def setup_yuneta_environment(reset_outputs=False):
     #--------------------------------------------------#
     global compiler
     compiler = get_compiler_from_config()
-    as_static = False
+    as_musl = False
     if compiler == "musl":
-        as_static = True
+        as_musl = True
 
     #--------------------------------------------------#
     # Get parent directory of YUNETAS_BASE and set up output directories
     #--------------------------------------------------#
     # yunetas_parent_base_dir = os.path.dirname(YUNETAS_BASE)
-    if as_static:
+    if as_musl:
         outputs_dir = os.path.join(YUNETAS_BASE, "outputs_musl")
     else:
         outputs_dir = os.path.join(YUNETAS_BASE, "outputs")
@@ -457,16 +457,16 @@ def process_directories(directories: List[str]):
         raise typer.Exit(code=1)
 
     CC = None
-    as_static = False
+    as_musl = False
     if compiler == "clang":
         CC = "/usr/bin/clang"
-        as_static = False
+        as_musl = False
     elif compiler == "gcc":
         CC = "/usr/bin/gcc"
-        as_static = False
+        as_musl = False
     elif compiler == "musl":
         CC = "/usr/bin/musl-gcc"
-        as_static = True
+        as_musl = True
     else:
         print(f"[red]Error: Compiler found [/red]")
         raise typer.Exit(code=1)
@@ -495,7 +495,7 @@ def process_directories(directories: List[str]):
                         f"-DCMAKE_BUILD_TYPE={build_type}",
                         f"-DCMAKE_C_COMPILER={CC}",
                     ]
-                    if as_static:
+                    if as_musl:
                         cmake_command.append(f"-DCMAKE_TOOLCHAIN_FILE={musl_toolchain}")
                     cmake_command.append("..")
 
