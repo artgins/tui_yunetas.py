@@ -101,13 +101,6 @@ def init():
     final_messages.append(f"[yellow]init[/yellow] done: created build directories, got compiler and build type from .config ([blue]menuconfig[/blue])\n")
     print("\n".join(final_messages))
 
-
-# TODO need to compile with musl
-# sudo ln -s /usr/include/x86_64-linux-gnu/asm /usr/include/x86_64-linux-musl
-# sudo ln -s /usr/include/linux /usr/include/x86_64-linux-musl
-# sudo ln -s /usr/include/asm-generic /usr/include/x86_64-linux-musl
-
-
 @app.command()
 def build():
     """
@@ -257,22 +250,16 @@ def setup_yuneta_environment(reset_outputs=False):
 
 
     #--------------------------------------------------#
-    #   Detect compiler from .config (Clang, GCC, musl)
+    #   Detect compiler from .config (Clang, GCC)
     #--------------------------------------------------#
     global compiler
     compiler = get_compiler_from_config()
-    as_musl = False
-    if compiler == "musl":
-        as_musl = True
 
     #--------------------------------------------------#
     # Get parent directory of YUNETAS_BASE and set up output directories
     #--------------------------------------------------#
     # yunetas_parent_base_dir = os.path.dirname(YUNETAS_BASE)
-    if as_musl:
-        outputs_dir = os.path.join(YUNETAS_BASE, "outputs_musl")
-    else:
-        outputs_dir = os.path.join(YUNETAS_BASE, "outputs")
+    outputs_dir = os.path.join(YUNETAS_BASE, "outputs")
     inc_dest_dir = os.path.join(outputs_dir, "include")
     lib_dest_dir = os.path.join(outputs_dir, "lib")
     bin_dest_dir = os.path.join(outputs_dir, "bin")
@@ -394,8 +381,6 @@ def get_compiler_from_config():
                 return "clang"
             elif line == "CONFIG_USE_COMPILER_GCC=y":
                 return "gcc"
-            elif line == "CONFIG_USE_COMPILER_MUSL=y":
-                return "musl"
 
     return None
 
@@ -441,10 +426,8 @@ def process_directories(directories: List[str]):
         print(f"[red]Error: YUNETAS_BASE '{YUNETAS_BASE}' does not exist or is not a directory.[/red]")
         raise typer.Exit(code=1)
 
-    musl_toolchain = f"{base_path}/tools/cmake/musl-toolchain.cmake"
-
     #--------------------------------------------------#
-    #   Detect compiler from .config (Clang, GCC, musl)
+    #   Detect compiler from .config (Clang, GCC)
     #--------------------------------------------------#
     global compiler
     compiler = get_compiler_from_config()
@@ -457,16 +440,10 @@ def process_directories(directories: List[str]):
         raise typer.Exit(code=1)
 
     CC = None
-    as_musl = False
     if compiler == "clang":
         CC = "/usr/bin/clang"
-        as_musl = False
     elif compiler == "gcc":
         CC = "/usr/bin/gcc"
-        as_musl = False
-    elif compiler == "musl":
-        CC = "/usr/bin/musl-gcc"
-        as_musl = True
     else:
         print(f"[red]Error: Compiler found [/red]")
         raise typer.Exit(code=1)
@@ -495,8 +472,6 @@ def process_directories(directories: List[str]):
                         f"-DCMAKE_BUILD_TYPE={build_type}",
                         f"-DCMAKE_C_COMPILER={CC}",
                     ]
-                    if as_musl:
-                        cmake_command.append(f"-DCMAKE_TOOLCHAIN_FILE={musl_toolchain}")
                     cmake_command.append("..")
 
                     print(f"[blue]Running cmake command '{cmake_command}' in '{build_dir}'[/blue]")

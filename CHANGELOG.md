@@ -12,3 +12,6 @@ Remove common directory
 
 ## 0.5.8 -- 21-Jan-2026
 save the output test in a txt file. To have a history of tests.
+
+## 0.7.0 -- 30-Mar-2026
+remove musl
