@@ -78,6 +78,7 @@ DIRECTORIES = [
     "utils/c/*",
     "yunos/c/*",
     "stress/c/*",
+    "performance/c/*",
 ]
 
 # Create the app.

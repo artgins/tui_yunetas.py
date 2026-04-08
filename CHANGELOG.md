@@ -1,5 +1,11 @@
 # **Changelog**
 
+## 0.8.0 -- 08-Apr-2026
+include performance in build
+
+## 0.7.0 -- 30-Mar-2026
+remove musl
+
 ## v0.5.7 -- 27-Sep-2025
 Get YUNETAS_BASE from:
     1) ENV, 2) /yuneta/development/yunetas, 3) /yuneta/development, else fail
@@ -13,5 +19,3 @@ Remove common directory
 ## 0.5.8 -- 21-Jan-2026
 save the output test in a txt file. To have a history of tests.
 
-## 0.7.0 -- 30-Mar-2026
-remove musl
