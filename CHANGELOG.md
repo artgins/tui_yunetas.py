@@ -11,6 +11,10 @@ External projects integration and agent sync wrappers:
   `tools/agent/sync_*.py`, forwarding arguments. `sync-configs` drives
   from each registered project's `yunos/batches/<host>/` (`--host`, with
   hostname auto-match).
+- Runtime-only nodes (`.deb`/`.rpm` sparse SDK: no `YUNETA_VERSION`, headers
+  shipped in `outputs/include`) are supported: `init <project>` /
+  `build <project>` work there; a plain `init` refuses to reset the
+  shipped `outputs/`.
 
 ## 0.8.0 -- 08-Apr-2026
 include performance in build

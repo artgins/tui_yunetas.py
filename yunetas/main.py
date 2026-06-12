@@ -551,12 +551,18 @@ def setup_yuneta_environment(reset_outputs=False):
     yuneta_version_path2 = os.path.join(YUNETAS_BASE, "YUNETA_VERSION")
     yuneta_config_path = os.path.join(YUNETAS_BASE, ".config")
 
-    if not os.path.isfile(yuneta_version_path2):
-        print(f"Error: YUNETA_VERSION file not found in '{YUNETAS_BASE}'.")
-        sys.exit(1)
+    # A runtime-only node (.deb/.rpm sparse SDK) has outputs/, outputs_ext/,
+    # tools/ and .config but NO framework sources and NO YUNETA_VERSION:
+    # the generated headers are shipped inside outputs/include.
+    has_framework_sources = os.path.isfile(yuneta_version_path2)
 
     if not os.path.isfile(yuneta_config_path):
         print(f"Error: .config file not found in '{YUNETAS_BASE}'.")
+        sys.exit(1)
+
+    if reset_outputs and not has_framework_sources:
+        print(f"Error: no YUNETA_VERSION in '{YUNETAS_BASE}' (runtime-only SDK): "
+              f"refusing to reset outputs/. Use 'yunetas init <project>'.")
         sys.exit(1)
 
 
@@ -594,7 +600,12 @@ def setup_yuneta_environment(reset_outputs=False):
     # Generate yuneta_version.h from YUNETA_VERSION
     #--------------------------------------------------#
     yuneta_version_h_path = os.path.join(inc_dest_dir, "yuneta_version.h")
-    if is_file_outdated(yuneta_version_path2, yuneta_version_h_path):
+    if not has_framework_sources:
+        # Runtime-only SDK: the header must have been shipped in outputs/include
+        if not os.path.isfile(yuneta_version_h_path):
+            print(f"Error: neither YUNETA_VERSION nor a shipped '{yuneta_version_h_path}' found.")
+            sys.exit(1)
+    elif is_file_outdated(yuneta_version_path2, yuneta_version_h_path):
         year = datetime.now().year
         version_header_content = f"""\
 /*
@@ -661,7 +672,10 @@ def setup_yuneta_environment(reset_outputs=False):
     print(msg)
     final_messages.append(msg)
 
-    msg = f"  - YUNETA_VERSION: {yuneta_version_path2}"
+    if has_framework_sources:
+        msg = f"  - YUNETA_VERSION: {yuneta_version_path2}"
+    else:
+        msg = f"  - YUNETA_VERSION: (runtime-only SDK, headers shipped in outputs/include)"
     print(msg)
     final_messages.append(msg)
 
