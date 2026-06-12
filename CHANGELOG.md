@@ -1,5 +1,17 @@
 # **Changelog**
 
+## 0.9.0 -- 12-Jun-2026
+External projects integration and agent sync wrappers:
+- New `register-project` / `unregister-project` / `list-projects`:
+  registry in `$YUNETAS_BASE/.projects.json` (machine-local, gitignored).
+- `init` / `build` / `clean` now also process each registered project's
+  `yunos/` after the SDK. Select with positional project names
+  (SDK skipped) or `--sdk-only`.
+- New `sync-binaries` / `sync-configs`: wrappers over
+  `tools/agent/sync_*.py`, forwarding arguments. `sync-configs` drives
+  from each registered project's `yunos/batches/<host>/` (`--host`, with
+  hostname auto-match).
+
 ## 0.8.0 -- 08-Apr-2026
 include performance in build
 

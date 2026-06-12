@@ -5,7 +5,9 @@ from .__version__ import __version__
 from .my_venv import app_venv
 from typing import Optional, List
 from pathlib import Path
+import json
 import os
+import socket
 import sys
 import subprocess
 import shutil
@@ -65,6 +67,10 @@ final_messages.append(msg)
 #     print(f"[red]Error: Missing required file: {required}[/red]", file=sys.stderr)
 #     sys.exit(1)
 
+# Registry of external projects (built after the SDK), sibling of .config:
+# machine-local, gitignored. Format: {"projects": [{"name": ..., "path": ...}]}
+PROJECTS_REGISTRY_PATH = os.path.join(YUNETAS_BASE, ".projects.json")
+
 # Directories to process
 DIRECTORIES = [
     "kernel/c/gobj-c",
@@ -89,13 +95,32 @@ console = Console()
 
 
 @app.command()
-def init():
+def init(
+    projects: Optional[List[str]] = typer.Argument(
+        None, help="Initialize only these registered projects (the SDK is skipped)."
+    ),
+    sdk_only: bool = typer.Option(
+        False, "--sdk-only", help="Initialize only the yunetas SDK, skip registered projects."
+    ),
+):
     """
-    Initialize yunetas, create build directories and get compiler and build type from .config (menuconfig)
+    Initialize yunetas, create build directories and get compiler and build type from .config (menuconfig).
+    Registered projects (see register-project) are initialized after the SDK.
     """
-    setup_yuneta_environment(True)
-    process_directories(DIRECTORIES)
-    process_directories(["."])
+    include_sdk, selected_projects = resolve_selection(projects, sdk_only)
+
+    if include_sdk:
+        setup_yuneta_environment(True)
+        process_directories(DIRECTORIES)
+        process_directories(["."])
+    else:
+        # Ensure outputs/include headers are up to date without wiping outputs
+        setup_yuneta_environment(False)
+
+    for project in selected_projects:
+        print(f"[cyan]Project: {project['name']} ({project['path']})[/cyan]")
+        process_directories([project_yunos_dir(project)])
+        final_messages.append(f"Project [cyan]{project['name']}[/cyan] initialized.")
 
     global compiler
     final_messages.append(f"\n[yellow]Compiler selected[/yellow]: [blue]{compiler}[/blue]\n")
@@ -103,24 +128,209 @@ def init():
     print("\n".join(final_messages))
 
 @app.command()
-def build():
+def build(
+    projects: Optional[List[str]] = typer.Argument(
+        None, help="Build only these registered projects (the SDK is skipped)."
+    ),
+    sdk_only: bool = typer.Option(
+        False, "--sdk-only", help="Build only the yunetas SDK, skip registered projects."
+    ),
+):
     """
-    Build and install yunetas.
+    Build and install yunetas, then the registered projects (see register-project).
     """
+    include_sdk, selected_projects = resolve_selection(projects, sdk_only)
+
     setup_yuneta_environment(False)
-    process_build_command(DIRECTORIES, ["make", "install"])
+
+    if include_sdk:
+        process_build_command(DIRECTORIES, ["make", "install"])
+
+    for project in selected_projects:
+        yunos_dir = project_yunos_dir(project)
+        if not os.path.isdir(os.path.join(yunos_dir, "build")):
+            print(f"[red]Error: '{yunos_dir}/build' not found. Run 'yunetas init {project['name']}' first.[/red]")
+            raise typer.Exit(code=1)
+        print(f"[cyan]Project: {project['name']} ({project['path']})[/cyan]")
+        process_build_command([yunos_dir], ["make", "install"])
+        final_messages.append(f"Project [cyan]{project['name']}[/cyan] built.")
+
     final_messages.append(f"\n[yellow]build[/yellow] done.\n")
     print("\n".join(final_messages))
 
 
 @app.command()
-def clean():
+def clean(
+    projects: Optional[List[str]] = typer.Argument(
+        None, help="Clean only these registered projects (the SDK is skipped)."
+    ),
+    sdk_only: bool = typer.Option(
+        False, "--sdk-only", help="Clean only the yunetas SDK, skip registered projects."
+    ),
+):
     """
-    Clean up build directories in yunetas.
+    Clean up build directories in yunetas and in the registered projects.
     """
-    process_build_command(DIRECTORIES, ["make", "clean"])
+    include_sdk, selected_projects = resolve_selection(projects, sdk_only)
+
+    if include_sdk:
+        process_build_command(DIRECTORIES, ["make", "clean"])
+
+    for project in selected_projects:
+        print(f"[cyan]Project: {project['name']} ({project['path']})[/cyan]")
+        process_build_command([project_yunos_dir(project)], ["make", "clean"])
+
     final_messages.append(f"\n[yellow]clean[/yellow] done.\n")
     print("\n".join(final_messages))
+
+
+@app.command(name="register-project")
+def register_project(
+    path: str = typer.Argument(..., help="Project root directory (must contain yunos/CMakeLists.txt)."),
+    name: Optional[str] = typer.Option(
+        None, "--name", help="Registry name (default: basename of the directory)."
+    ),
+):
+    """
+    Register an external project so init/build/clean/sync-configs also process it.
+    The registry lives in $YUNETAS_BASE/.projects.json (machine-local).
+    """
+    abs_path = os.path.abspath(path)
+    if not os.path.isdir(abs_path):
+        print(f"[red]Error: '{abs_path}' does not exist or is not a directory.[/red]")
+        raise typer.Exit(code=1)
+
+    cmake_file = os.path.join(abs_path, "yunos", "CMakeLists.txt")
+    if not os.path.isfile(cmake_file):
+        print(f"[red]Error: '{cmake_file}' not found: not a buildable yuneta project.[/red]")
+        raise typer.Exit(code=1)
+
+    project_name = name or os.path.basename(abs_path.rstrip("/"))
+    registered = load_registered_projects()
+    for p in registered:
+        if p["name"] == project_name:
+            print(f"[red]Error: project '{project_name}' already registered -> {p['path']}[/red]")
+            raise typer.Exit(code=1)
+        if p["path"] == abs_path:
+            print(f"[red]Error: '{abs_path}' already registered as '{p['name']}'.[/red]")
+            raise typer.Exit(code=1)
+
+    registered.append({"name": project_name, "path": abs_path})
+    save_registered_projects(registered)
+    print(f"[green]Registered project '{project_name}' -> {abs_path}[/green]")
+
+
+@app.command(name="unregister-project")
+def unregister_project(
+    name: str = typer.Argument(..., help="Registered project name (or its path)."),
+):
+    """
+    Remove a project from the registry (the project tree is NOT touched).
+    """
+    registered = load_registered_projects()
+    abs_path = os.path.abspath(name)
+    remaining = [p for p in registered if p["name"] != name and p["path"] != abs_path]
+    if len(remaining) == len(registered):
+        known = ", ".join(sorted(p["name"] for p in registered)) or "(none)"
+        print(f"[red]Error: project '{name}' is not registered. Registered: {known}[/red]")
+        raise typer.Exit(code=1)
+
+    save_registered_projects(remaining)
+    print(f"[green]Unregistered project '{name}'.[/green]")
+
+
+@app.command(name="list-projects")
+def list_projects():
+    """
+    List the registered projects.
+    """
+    registered = load_registered_projects()
+    if not registered:
+        print("[yellow]No projects registered. Use 'yunetas register-project <path>'.[/yellow]")
+        return
+
+    for p in registered:
+        yunos_dir = project_yunos_dir(p)
+        if os.path.isfile(os.path.join(yunos_dir, "CMakeLists.txt")):
+            state = "[green]ok[/green]"
+        else:
+            state = "[red]missing yunos/CMakeLists.txt[/red]"
+        print(f"  [cyan]{p['name']:<20}[/cyan] {p['path']}  {state}")
+
+
+@app.command(
+    name="sync-binaries",
+    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+)
+def sync_binaries(ctx: typer.Context):
+    """
+    Compare outputs/yunos binaries with the local agent and push updates.
+    Wrapper over tools/agent/sync_binaries.py: every argument is forwarded
+    (e.g. -n dry-run, -a all, --no-restart, OAuth2 options).
+    """
+    ret = run_agent_tool("sync_binaries.py", ctx.args)
+    raise typer.Exit(code=ret)
+
+
+@app.command(
+    name="sync-configs",
+    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+)
+def sync_configs(
+    ctx: typer.Context,
+    host: Optional[str] = typer.Option(
+        None, "--host", help="batches/<host>/ directory to sync (default: this machine's hostname)."
+    ),
+    project: Optional[List[str]] = typer.Option(
+        None, "--project", "-p", help="Restrict to these registered projects (default: all)."
+    ),
+):
+    """
+    Sync yuno configs of each registered project (yunos/batches/<host>/) against
+    the local agent. Wrapper over tools/agent/sync_configs.py: unknown arguments
+    are forwarded (e.g. -n dry-run, -a all, -r restart, OAuth2 options).
+    """
+    _, selected_projects = resolve_selection(project, False)
+    if not selected_projects:
+        print("[yellow]No projects registered. Use 'yunetas register-project <path>'.[/yellow]")
+        raise typer.Exit(code=1)
+
+    exit_code = 0
+    synced = 0
+    for proj in selected_projects:
+        batches_dir = os.path.join(project_yunos_dir(proj), "batches")
+        if not os.path.isdir(batches_dir):
+            print(f"[yellow]Skipping {proj['name']}: no '{batches_dir}'.[/yellow]")
+            continue
+
+        hosts = sorted(
+            d for d in os.listdir(batches_dir)
+            if os.path.isdir(os.path.join(batches_dir, d))
+        )
+        if host:
+            if host not in hosts:
+                print(f"[yellow]Skipping {proj['name']}: no batches for host '{host}' (available: {', '.join(hosts) or 'none'}).[/yellow]")
+                continue
+            chosen = host
+        else:
+            candidates = {socket.gethostname(), socket.getfqdn()}
+            matches = [h for h in hosts if h in candidates]
+            if len(matches) != 1:
+                print(f"[red]Error: cannot guess the target host for '{proj['name']}'. Pass --host. Available: {', '.join(hosts) or 'none'}[/red]")
+                raise typer.Exit(code=1)
+            chosen = matches[0]
+
+        config_dir = os.path.join(batches_dir, chosen)
+        print(f"[cyan]Syncing configs: {proj['name']} ({config_dir})[/cyan]")
+        ret = run_agent_tool("sync_configs.py", list(ctx.args) + [config_dir])
+        synced += 1
+        if ret != 0:
+            exit_code = ret
+
+    if synced == 0:
+        print("[yellow]Nothing synced: no registered project has a matching batches/<host>/ directory.[/yellow]")
+        raise typer.Exit(code=1)
+    raise typer.Exit(code=exit_code)
 
 
 @app.command()
@@ -173,6 +383,106 @@ def app_main(
 
 def run():
     app()
+
+
+#--------------------------------------------------#
+#   Project registry helpers
+#--------------------------------------------------#
+def load_registered_projects():
+    """
+    Load the project registry (.projects.json next to .config).
+
+    Returns:
+        list: list of {"name": str, "path": str} dicts (empty if no registry).
+    """
+    if not os.path.isfile(PROJECTS_REGISTRY_PATH):
+        return []
+    try:
+        with open(PROJECTS_REGISTRY_PATH, "r") as f:
+            data = json.load(f)
+    except Exception as e:
+        print(f"[red]Error: cannot read project registry '{PROJECTS_REGISTRY_PATH}': {e}[/red]")
+        raise typer.Exit(code=1)
+
+    projects = data.get("projects", []) if isinstance(data, dict) else None
+    if not isinstance(projects, list):
+        print(f"[red]Error: malformed project registry '{PROJECTS_REGISTRY_PATH}'.[/red]")
+        raise typer.Exit(code=1)
+    return projects
+
+
+def save_registered_projects(projects):
+    """
+    Save the project registry (.projects.json next to .config).
+    """
+    try:
+        with open(PROJECTS_REGISTRY_PATH, "w") as f:
+            json.dump({"projects": projects}, f, indent=4)
+            f.write("\n")
+    except Exception as e:
+        print(f"[red]Error: cannot write project registry '{PROJECTS_REGISTRY_PATH}': {e}[/red]")
+        raise typer.Exit(code=1)
+
+
+def project_yunos_dir(project):
+    """
+    Return the buildable yunos/ directory of a registered project.
+    """
+    return os.path.join(project["path"], "yunos")
+
+
+def resolve_selection(project_names, sdk_only):
+    """
+    Decide what init/build/clean must process.
+
+    Args:
+        project_names (list|None): positional project names (None/empty = not given).
+        sdk_only (bool): --sdk-only flag.
+
+    Returns:
+        tuple: (include_sdk: bool, projects: list)
+            - no names, no flag  -> SDK + every registered project
+            - names given        -> only those projects (SDK skipped)
+            - --sdk-only         -> only the SDK
+    """
+    if sdk_only and project_names:
+        print("[red]Error: --sdk-only and project names are mutually exclusive.[/red]")
+        raise typer.Exit(code=1)
+
+    if sdk_only:
+        return True, []
+
+    registered = load_registered_projects()
+    if project_names:
+        by_name = {p["name"]: p for p in registered}
+        selected = []
+        for name in project_names:
+            if name not in by_name:
+                known = ", ".join(sorted(by_name)) or "(none)"
+                print(f"[red]Error: project '{name}' is not registered. Registered: {known}[/red]")
+                raise typer.Exit(code=1)
+            selected.append(by_name[name])
+        return False, selected
+
+    return True, registered
+
+
+def run_agent_tool(script_name, args, cwd=None):
+    """
+    Run a tool from $YUNETAS_BASE/tools/agent/ forwarding arguments.
+
+    Returns:
+        int: the tool's exit code.
+    """
+    script = os.path.join(YUNETAS_BASE, "tools", "agent", script_name)
+    if not os.path.isfile(script):
+        print(f"[red]Error: '{script}' not found.[/red]")
+        raise typer.Exit(code=1)
+
+    env = os.environ.copy()
+    env.setdefault("YUNETAS_BASE", YUNETAS_BASE)
+    result = subprocess.run([sys.executable, script] + list(args), cwd=cwd, env=env)
+    return result.returncode
 
 
 def kconfig2include(config_file_path):
@@ -450,7 +760,11 @@ def process_directories(directories: List[str]):
         raise typer.Exit(code=1)
 
     for directory in directories:
-        path_pattern = base_path / directory
+        # Registered projects come as absolute paths; SDK entries are YUNETAS_BASE-relative
+        if os.path.isabs(directory):
+            path_pattern = Path(directory)
+        else:
+            path_pattern = base_path / directory
         for dir_path in path_pattern.parent.glob(path_pattern.name):  # Support wildcard directories
             if dir_path.is_dir():
                 print(f"[cyan]Processing directory: {dir_path}[/cyan]")
@@ -498,7 +812,11 @@ def process_build_command(directories: List[str], command: List[str]):
         raise typer.Exit(code=1)
 
     for directory in directories:
-        path_pattern = base_path / directory
+        # Registered projects come as absolute paths; SDK entries are YUNETAS_BASE-relative
+        if os.path.isabs(directory):
+            path_pattern = Path(directory)
+        else:
+            path_pattern = base_path / directory
         for dir_path in path_pattern.parent.glob(path_pattern.name):  # Support wildcard directories
             if not dir_path.is_dir():
                 continue

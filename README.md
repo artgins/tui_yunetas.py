@@ -32,6 +32,27 @@ For more details, see [doc.yuneta.io](https://doc.yuneta.io)
 [pypi-badge]: https://img.shields.io/pypi/v/yunetas
 
 
+# Commands
+
+```shell
+yunetas init                  # create build dirs, compiler/build-type from .config (menuconfig)
+yunetas build                 # make install: SDK + registered projects
+yunetas clean                 # make clean:   SDK + registered projects
+yunetas test                  # ctest
+
+# External projects (registry in $YUNETAS_BASE/.projects.json, machine-local)
+yunetas register-project <path>     # <path> must contain yunos/CMakeLists.txt
+yunetas unregister-project <name>
+yunetas list-projects
+yunetas init|build|clean <name>...  # only those projects (SDK skipped)
+yunetas init|build|clean --sdk-only # only the SDK
+
+# Deploy helpers (wrappers over $YUNETAS_BASE/tools/agent/sync_*.py)
+yunetas sync-binaries [-n|-a|...]                 # outputs/yunos vs the local agent
+yunetas sync-configs --host <host> [-n|-a|...]    # per-project yunos/batches/<host>/
+```
+
+
 # How build this package
 
 
