@@ -1,5 +1,22 @@
 # **Changelog**
 
+## 0.10.0 -- 13-Jun-2026
+Agent-aware deploy: realm auto-match and a one-shot upgrade flow.
+- `sync-configs` without `--host` now matches each project's
+  `yunos/batches/<host>/` directories against the realm_ids the local agent
+  manages (`*list-realms`) and syncs every match — a node running several
+  realms deploys all the relevant ones in one go (a batches dir is named after
+  its realm_id, the deploy FQDN). `--host` still targets one dir explicitly;
+  if the agent can't be reached it falls back to the legacy single-hostname
+  guess. New `--url` / `-u` (used for the realm query and forwarded to the
+  sync).
+- New `upgrade-yunos`: promotes freshly installed binaries/configs to primary
+  on the local agent. Optional rollback snapshot (idempotent by name, default
+  `pre-upgrade-<YYYYMMDD>`, `--no-snap` to skip) -> `find-new-yunos` preview +
+  confirm (`--yes` to skip the prompt) -> `find-new-yunos create=1` ->
+  `deactivate-snap` (restart_nodes: SIGKILL + treedb reload, newest release
+  wins). `--dry-run` prints the agent commands without running them.
+
 ## 0.9.1 -- 13-Jun-2026
 Move the project registry out of the source tree:
 - The registry now lives in `~/.yuneta/projects.json` (user runtime state),

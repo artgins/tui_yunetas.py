@@ -49,7 +49,9 @@ yunetas init|build|clean --sdk-only # only the SDK
 
 # Deploy helpers (wrappers over $YUNETAS_BASE/tools/agent/sync_*.py)
 yunetas sync-binaries [-n|-a|...]                 # outputs/yunos vs the local agent
-yunetas sync-configs --host <host> [-n|-a|...]    # per-project yunos/batches/<host>/
+yunetas sync-configs [-n|-a|-r|...]               # auto-match batches/<host>/ to the agent's realm_ids
+yunetas sync-configs --host <host> [...]          # or target one batches dir explicitly
+yunetas upgrade-yunos [--no-snap|--snap-name N|-y|-n]  # snapshot -> find-new-yunos -> deactivate-snap
 ```
 
 

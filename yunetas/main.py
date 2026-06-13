@@ -7,6 +7,7 @@ from typing import Optional, List
 from pathlib import Path
 import json
 import os
+import re
 import socket
 import sys
 import subprocess
@@ -295,21 +296,47 @@ def sync_binaries(ctx: typer.Context):
 def sync_configs(
     ctx: typer.Context,
     host: Optional[str] = typer.Option(
-        None, "--host", help="batches/<host>/ directory to sync (default: this machine's hostname)."
+        None, "--host", help="Sync only this batches/<host>/ directory (overrides realm auto-match)."
     ),
     project: Optional[List[str]] = typer.Option(
         None, "--project", "-p", help="Restrict to these registered projects (default: all)."
     ),
+    url: Optional[str] = typer.Option(
+        None, "--url", "-u", help="ycommand url (default: ws://127.0.0.1:1991), used for realm auto-match and forwarded to the sync."
+    ),
 ):
     """
     Sync yuno configs of each registered project (yunos/batches/<host>/) against
-    the local agent. Wrapper over tools/agent/sync_configs.py: unknown arguments
-    are forwarded (e.g. -n dry-run, -a all, -r restart, OAuth2 options).
+    the local agent.
+
+    Without --host, each project's batches/<host>/ directories are matched
+    against the realm_ids the local agent manages ('*list-realms'): every dir
+    whose name is a (non-disabled) realm_id is synced automatically. Since a
+    batches dir is named after its realm_id (the deploy FQDN), a node running
+    several realms syncs all the relevant ones in one go. If the agent can't be
+    reached, it falls back to the legacy single-hostname guess.
+
+    Wrapper over tools/agent/sync_configs.py: unknown arguments are forwarded
+    (e.g. -n dry-run, -a all, -r restart, OAuth2 options).
     """
     _, selected_projects = resolve_selection(project, False)
     if not selected_projects:
         print("[yellow]No projects registered. Use 'yunetas register-project <path>'.[/yellow]")
         raise typer.Exit(code=1)
+
+    # Without --host, auto-match batches dirs against the agent's realm_ids.
+    realm_ids = None
+    if not host:
+        realm_ids = local_realm_ids(url)
+        if realm_ids is None:
+            print("[yellow]Could not query the agent for realms (*list-realms); falling back to "
+                  "hostname match. Pass --host to target a specific batches dir.[/yellow]")
+        elif not realm_ids:
+            print("[yellow]The agent reports no enabled realms to match against.[/yellow]")
+
+    forwarded = list(ctx.args)
+    if url:
+        forwarded += ["-u", url]
 
     exit_code = 0
     synced = 0
@@ -323,30 +350,128 @@ def sync_configs(
             d for d in os.listdir(batches_dir)
             if os.path.isdir(os.path.join(batches_dir, d))
         )
+
         if host:
             if host not in hosts:
                 print(f"[yellow]Skipping {proj['name']}: no batches for host '{host}' (available: {', '.join(hosts) or 'none'}).[/yellow]")
                 continue
-            chosen = host
+            chosen_hosts = [host]
+        elif realm_ids is not None:
+            chosen_hosts = [h for h in hosts if h in realm_ids]
+            if not chosen_hosts:
+                print(f"[yellow]Skipping {proj['name']}: no batches/<host>/ matches a local realm_id "
+                      f"(batches: {', '.join(hosts) or 'none'}; realms: {', '.join(sorted(realm_ids)) or 'none'}).[/yellow]")
+                continue
         else:
+            # Fallback: legacy single-hostname guess (agent unreachable).
             candidates = {socket.gethostname(), socket.getfqdn()}
-            matches = [h for h in hosts if h in candidates]
-            if len(matches) != 1:
+            chosen_hosts = [h for h in hosts if h in candidates]
+            if len(chosen_hosts) != 1:
                 print(f"[red]Error: cannot guess the target host for '{proj['name']}'. Pass --host. Available: {', '.join(hosts) or 'none'}[/red]")
                 raise typer.Exit(code=1)
-            chosen = matches[0]
 
-        config_dir = os.path.join(batches_dir, chosen)
-        print(f"[cyan]Syncing configs: {proj['name']} ({config_dir})[/cyan]")
-        ret = run_agent_tool("sync_configs.py", list(ctx.args) + [config_dir])
-        synced += 1
-        if ret != 0:
-            exit_code = ret
+        for chosen in chosen_hosts:
+            config_dir = os.path.join(batches_dir, chosen)
+            print(f"[cyan]Syncing configs: {proj['name']} -> {chosen} ({config_dir})[/cyan]")
+            ret = run_agent_tool("sync_configs.py", forwarded + [config_dir])
+            synced += 1
+            if ret != 0:
+                exit_code = ret
 
     if synced == 0:
         print("[yellow]Nothing synced: no registered project has a matching batches/<host>/ directory.[/yellow]")
         raise typer.Exit(code=1)
     raise typer.Exit(code=exit_code)
+
+
+@app.command(name="upgrade-yunos")
+def upgrade_yunos(
+    snap_name: Optional[str] = typer.Option(
+        None, "--snap-name", help="Rollback snap name (default: pre-upgrade-<YYYYMMDD>)."
+    ),
+    no_snap: bool = typer.Option(
+        False, "--no-snap", help="Skip the rollback snapshot step entirely."
+    ),
+    yes: bool = typer.Option(
+        False, "--yes", "-y", help="Don't prompt before creating the new yuno rows."
+    ),
+    url: Optional[str] = typer.Option(
+        None, "--url", "-u", help="ycommand url (default: ws://127.0.0.1:1991)."
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", "-n", help="Print the agent commands without running them."
+    ),
+):
+    """
+    Promote freshly installed binaries/configs to primary on the local agent.
+
+    Run this after 'sync-binaries' / 'sync-configs' have pushed the new
+    artifacts. The flow is:
+
+      1. Rollback snapshot (idempotent by name): shoot-snap only if no snap
+         named like the default 'pre-upgrade-<YYYYMMDD>' (or --snap-name)
+         already exists. Skipped with --no-snap.
+      2. find-new-yunos (preview): list the create-yuno rows that would be
+         registered, then ask for confirmation (skip the prompt with --yes).
+      3. find-new-yunos create=1: register the new yuno-instance rows.
+      4. deactivate-snap: triggers restart_nodes() on the agent (SIGKILL +
+         treedb reload), promoting the newest release of every yuno.
+    """
+    ycommand = ycommand_path()
+    if not ycommand:
+        print("[red]Error: ycommand not found in PATH.[/red]")
+        raise typer.Exit(code=1)
+
+    # 1) Rollback snapshot (idempotent by name).
+    if not no_snap:
+        name = snap_name or f"pre-upgrade-{datetime.now():%Y%m%d}"
+        exists = snap_exists(ycommand, url, name)
+        if exists:
+            print(f"[yellow]Snap '{name}' already exists; reusing it as the rollback point.[/yellow]")
+        else:
+            ok, _ = run_ycommand(
+                ycommand, url,
+                f"shoot-snap name={name} description=before-upgrade-yunos",
+                dry_run,
+            )
+            if not ok and not dry_run:
+                print("[red]Error: shoot-snap failed; aborting before any change.[/red]")
+                raise typer.Exit(code=1)
+
+    # 2) find-new-yunos preview.
+    ok, out = run_ycommand(ycommand, url, "find-new-yunos", dry_run)
+    if not ok and not dry_run:
+        print("[red]Error: find-new-yunos failed.[/red]")
+        raise typer.Exit(code=1)
+    if not dry_run:
+        try:
+            preview = _parse_leading_json(out)
+        except (ValueError, json.JSONDecodeError):
+            preview = []
+        if not isinstance(preview, list) or not preview:
+            print("[green]No new yunos to activate. Nothing to do.[/green]")
+            raise typer.Exit(code=0)
+        print(f"[cyan]{len(preview)} new yuno row(s) would be created:[/cyan]")
+        for line in preview:
+            print(f"  {line}")
+
+        # 3) Confirm + create.
+        if not yes and not typer.confirm("Create these new yuno rows?", default=False):
+            print("[yellow]Aborted: no rows created, no snap consumed, no restart.[/yellow]")
+            raise typer.Exit(code=1)
+
+    ok, _ = run_ycommand(ycommand, url, "find-new-yunos create=1", dry_run)
+    if not ok and not dry_run:
+        print("[red]Error: find-new-yunos create=1 failed; aborting before restart.[/red]")
+        raise typer.Exit(code=1)
+
+    # 4) deactivate-snap -> restart_nodes() on the agent.
+    ok, _ = run_ycommand(ycommand, url, "deactivate-snap", dry_run)
+    if not ok and not dry_run:
+        print("[red]Error: deactivate-snap failed.[/red]")
+        raise typer.Exit(code=1)
+
+    print("[green]upgrade-yunos done: new releases promoted and nodes restarted.[/green]")
 
 
 @app.command()
@@ -500,6 +625,110 @@ def run_agent_tool(script_name, args, cwd=None):
     env.setdefault("YUNETAS_BASE", YUNETAS_BASE)
     result = subprocess.run([sys.executable, script] + list(args), cwd=cwd, env=env)
     return result.returncode
+
+
+#--------------------------------------------------#
+#   ycommand helpers (talk to the local agent)
+#--------------------------------------------------#
+# ycommand wraps a JSON payload with a leading blank line and a coloured footer.
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _parse_leading_json(text):
+    """
+    Decode the first JSON value found in ycommand's stdout (ANSI stripped),
+    ignoring whatever trails it. Raises ValueError if none is present.
+    """
+    clean = _ANSI_RE.sub("", text or "")
+    start = next((i for i, ch in enumerate(clean) if ch in "[{"), None)
+    if start is None:
+        raise ValueError("no JSON value found")
+    obj, _ = json.JSONDecoder().raw_decode(clean[start:])
+    return obj
+
+
+def ycommand_path():
+    """Resolve the ycommand binary, or None if not on PATH."""
+    return shutil.which("ycommand")
+
+
+def run_ycommand(ycommand, url, cmd_str, dry_run=False, timeout=300):
+    """
+    Run one `ycommand -c '<cmd_str>'`, echoing it. Returns (ok, stdout).
+    `ok` is False on a non-zero exit or an "ERROR" in the response.
+    """
+    cmd = [ycommand]
+    if url:
+        cmd += ["-u", url]
+    cmd += ["-c", cmd_str]
+    print(f"[cyan]>> ycommand -c '{cmd_str}'[/cyan]")
+    if dry_run:
+        print("   [dim](dry-run, not executed)[/dim]")
+        return True, ""
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.SubprocessError) as e:
+        print(f"[red]   ERROR: {e}[/red]")
+        return False, ""
+    out = (res.stdout or "").strip()
+    if out:
+        print(out)
+    err = (res.stderr or "").strip()
+    if err:
+        print(f"[dim]{err}[/dim]")
+    ok = res.returncode == 0 and "ERROR" not in out
+    return ok, out
+
+
+def local_realm_ids(url=None):
+    """
+    Realm ids the local agent manages, via '*list-realms'.
+
+    Returns a set of enabled realm_id strings, or None if the agent can't be
+    queried (binary missing, connection refused, unparsable answer).
+    """
+    ycommand = ycommand_path()
+    if not ycommand:
+        return None
+    cmd = [ycommand]
+    if url:
+        cmd += ["-u", url]
+    cmd += ["-c", "*list-realms"]
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    try:
+        data = _parse_leading_json(res.stdout)
+    except (ValueError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, list):
+        return None
+    ids = set()
+    for r in data:
+        if isinstance(r, dict) and r.get("id") and not r.get("realm_disabled"):
+            ids.add(r["id"])
+    return ids
+
+
+def snap_exists(ycommand, url, name):
+    """
+    True/False whether a snap named `name` exists on the agent; None if the
+    snap list can't be read. The 'snaps' command renders a table whose Name
+    column holds the name quoted, so an exact quoted match is unambiguous.
+    """
+    cmd = [ycommand]
+    if url:
+        cmd += ["-u", url]
+    cmd += ["-c", "snaps"]
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if res.returncode != 0:
+        return None
+    text = _ANSI_RE.sub("", res.stdout or "")
+    return f'"{name}"' in text
 
 
 def kconfig2include(config_file_path):
