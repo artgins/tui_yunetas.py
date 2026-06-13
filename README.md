@@ -40,7 +40,7 @@ yunetas build                 # make install: SDK + registered projects
 yunetas clean                 # make clean:   SDK + registered projects
 yunetas test                  # ctest
 
-# External projects (registry in $YUNETAS_BASE/.projects.json, machine-local)
+# External projects (registry in ~/.yuneta/projects.json, machine-local)
 yunetas register-project <path>     # <path> must contain yunos/CMakeLists.txt
 yunetas unregister-project <name>
 yunetas list-projects

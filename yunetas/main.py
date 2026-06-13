@@ -67,9 +67,25 @@ final_messages.append(msg)
 #     print(f"[red]Error: Missing required file: {required}[/red]", file=sys.stderr)
 #     sys.exit(1)
 
-# Registry of external projects (built after the SDK), sibling of .config:
-# machine-local, gitignored. Format: {"projects": [{"name": ..., "path": ...}]}
-PROJECTS_REGISTRY_PATH = os.path.join(YUNETAS_BASE, ".projects.json")
+# Registry of external projects (built after the SDK). This is runtime/usage
+# state, NOT part of any source checkout, so it lives in the user's home
+# (~/.yuneta/projects.json), independent of YUNETAS_BASE.
+# Format: {"projects": [{"name": ..., "path": ...}]}
+YUNETA_USER_DIR = os.path.join(os.path.expanduser("~"), ".yuneta")
+PROJECTS_REGISTRY_PATH = os.path.join(YUNETA_USER_DIR, "projects.json")
+
+# Soft migration from the legacy in-tree location ($YUNETAS_BASE/.projects.json).
+# Done once: if the old file exists and the new one does not, move it across.
+_LEGACY_REGISTRY_PATH = os.path.join(YUNETAS_BASE, ".projects.json")
+if os.path.isfile(_LEGACY_REGISTRY_PATH) and not os.path.isfile(PROJECTS_REGISTRY_PATH):
+    try:
+        os.makedirs(YUNETA_USER_DIR, exist_ok=True)
+        shutil.move(_LEGACY_REGISTRY_PATH, PROJECTS_REGISTRY_PATH)
+        print(f"[yellow]Migrated project registry: "
+              f"{_LEGACY_REGISTRY_PATH} -> {PROJECTS_REGISTRY_PATH}[/yellow]")
+    except Exception as e:
+        print(f"[yellow]Warning: could not migrate project registry "
+              f"from {_LEGACY_REGISTRY_PATH}: {e}[/yellow]")
 
 # Directories to process
 DIRECTORIES = [
@@ -193,7 +209,7 @@ def register_project(
 ):
     """
     Register an external project so init/build/clean/sync-configs also process it.
-    The registry lives in $YUNETAS_BASE/.projects.json (machine-local).
+    The registry lives in ~/.yuneta/projects.json (machine-local).
     """
     abs_path = os.path.abspath(path)
     if not os.path.isdir(abs_path):
@@ -390,7 +406,7 @@ def run():
 #--------------------------------------------------#
 def load_registered_projects():
     """
-    Load the project registry (.projects.json next to .config).
+    Load the project registry (~/.yuneta/projects.json).
 
     Returns:
         list: list of {"name": str, "path": str} dicts (empty if no registry).
@@ -413,9 +429,10 @@ def load_registered_projects():
 
 def save_registered_projects(projects):
     """
-    Save the project registry (.projects.json next to .config).
+    Save the project registry (~/.yuneta/projects.json).
     """
     try:
+        os.makedirs(YUNETA_USER_DIR, exist_ok=True)
         with open(PROJECTS_REGISTRY_PATH, "w") as f:
             json.dump({"projects": projects}, f, indent=4)
             f.write("\n")

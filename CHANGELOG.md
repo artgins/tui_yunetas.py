@@ -1,5 +1,15 @@
 # **Changelog**
 
+## 0.9.1 -- 13-Jun-2026
+Move the project registry out of the source tree:
+- The registry now lives in `~/.yuneta/projects.json` (user runtime state),
+  not `$YUNETAS_BASE/.projects.json`. It is independent of the checkout: which
+  external projects to build alongside the SDK is daily-use state, it has
+  nothing to do with the contents of any source tree.
+- One-time soft migration: on first run, if the legacy
+  `$YUNETAS_BASE/.projects.json` exists and the new file does not, it is moved
+  across (a notice is printed). No manual step needed.
+
 ## 0.9.0 -- 12-Jun-2026
 External projects integration and agent sync wrappers:
 - New `register-project` / `unregister-project` / `list-projects`:
