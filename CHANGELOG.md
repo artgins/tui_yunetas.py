@@ -1,5 +1,13 @@
 # **Changelog**
 
+## 0.10.1 -- 14-Jun-2026
+Quieter `upgrade-yunos` output.
+- `run_ycommand` gained an `echo_output` flag; the two `find-new-yunos`
+  steps now suppress ycommand's raw stdout. The preview is no longer printed
+  twice (raw JSON + formatted list) and `create=1` no longer dumps the verbose
+  created-node table — a one-line `Created N new yuno row(s).` summary replaces
+  it. Command echo and error/stderr handling are unchanged.
+
 ## 0.10.0 -- 13-Jun-2026
 Agent-aware deploy: realm auto-match and a one-shot upgrade flow.
 - `sync-configs` without `--host` now matches each project's

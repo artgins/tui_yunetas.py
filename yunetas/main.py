@@ -438,8 +438,9 @@ def upgrade_yunos(
                 print("[red]Error: shoot-snap failed; aborting before any change.[/red]")
                 raise typer.Exit(code=1)
 
-    # 2) find-new-yunos preview.
-    ok, out = run_ycommand(ycommand, url, "find-new-yunos", dry_run)
+    # 2) find-new-yunos preview. Suppress the raw JSON echo; we render our
+    #    own formatted list from the parsed preview below.
+    ok, out = run_ycommand(ycommand, url, "find-new-yunos", dry_run, echo_output=False)
     if not ok and not dry_run:
         print("[red]Error: find-new-yunos failed.[/red]")
         raise typer.Exit(code=1)
@@ -460,10 +461,13 @@ def upgrade_yunos(
             print("[yellow]Aborted: no rows created, no snap consumed, no restart.[/yellow]")
             raise typer.Exit(code=1)
 
-    ok, _ = run_ycommand(ycommand, url, "find-new-yunos create=1", dry_run)
+    # Suppress the verbose created-node table; print a one-line summary instead.
+    ok, _ = run_ycommand(ycommand, url, "find-new-yunos create=1", dry_run, echo_output=False)
     if not ok and not dry_run:
         print("[red]Error: find-new-yunos create=1 failed; aborting before restart.[/red]")
         raise typer.Exit(code=1)
+    if not dry_run:
+        print(f"[green]Created {len(preview)} new yuno row(s).[/green]")
 
     # 4) deactivate-snap -> restart_nodes() on the agent.
     ok, _ = run_ycommand(ycommand, url, "deactivate-snap", dry_run)
@@ -652,10 +656,14 @@ def ycommand_path():
     return shutil.which("ycommand")
 
 
-def run_ycommand(ycommand, url, cmd_str, dry_run=False, timeout=300):
+def run_ycommand(ycommand, url, cmd_str, dry_run=False, timeout=300, echo_output=True):
     """
     Run one `ycommand -c '<cmd_str>'`, echoing it. Returns (ok, stdout).
     `ok` is False on a non-zero exit or an "ERROR" in the response.
+
+    With echo_output=False the captured stdout is still returned but not
+    printed — used when the caller renders its own concise summary instead
+    of dumping ycommand's verbose table (e.g. find-new-yunos).
     """
     cmd = [ycommand]
     if url:
@@ -671,7 +679,7 @@ def run_ycommand(ycommand, url, cmd_str, dry_run=False, timeout=300):
         print(f"[red]   ERROR: {e}[/red]")
         return False, ""
     out = (res.stdout or "").strip()
-    if out:
+    if out and echo_output:
         print(out)
     err = (res.stderr or "").strip()
     if err:
