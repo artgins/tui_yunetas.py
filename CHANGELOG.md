@@ -1,5 +1,21 @@
 # **Changelog**
 
+## 0.11.0 -- 15-Jun-2026
+Couple binary+config deploys, and don't stack snaps in `upgrade-yunos`.
+- New `sync` command: pushes binaries AND configs in one step (`sync-binaries`
+  then `sync-configs`) so a binary bump never ships without its matching config
+  bump — the stale-config failure mode behind verify-by-default OIDC breakage
+  (new fail-closed binary vs old no-CA config). Shared extra args are forwarded
+  to both tools; use the individual commands for tool-specific flags. If the
+  binaries push fails, configs are not synced (no half-deploy).
+- `sync-binaries` now prints a one-line reminder to sync the matching configs
+  after a successful (non-dry-run) push.
+- `upgrade-yunos`: if a snap is already active, reuse it as the rollback point
+  instead of shooting a new one (`active_snap_name` via `*snaps`). The by-name
+  idempotency check is unchanged when no snap is active.
+- Refactor: the `sync-configs` realm-match + push loop moved to a shared
+  `push_configs()` helper, reused by both `sync-configs` and `sync`.
+
 ## 0.10.1 -- 14-Jun-2026
 Quieter `upgrade-yunos` output.
 - `run_ycommand` gained an `echo_output` flag; the two `find-new-yunos`

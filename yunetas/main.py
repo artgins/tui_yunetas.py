@@ -286,6 +286,10 @@ def sync_binaries(ctx: typer.Context):
     (e.g. -n dry-run, -a all, --no-restart, OAuth2 options).
     """
     ret = run_agent_tool("sync_binaries.py", ctx.args)
+    if ret == 0 and not ({"-n", "--dry-run"} & set(ctx.args)):
+        print("[dim]Reminder: now sync the matching configs ('yunetas sync-configs', "
+              "or 'yunetas sync' to push both) — a new binary against a stale config "
+              "is the verify-by-default footgun.[/dim]")
     raise typer.Exit(code=ret)
 
 
@@ -324,63 +328,69 @@ def sync_configs(
         print("[yellow]No projects registered. Use 'yunetas register-project <path>'.[/yellow]")
         raise typer.Exit(code=1)
 
-    # Without --host, auto-match batches dirs against the agent's realm_ids.
-    realm_ids = None
-    if not host:
-        realm_ids = local_realm_ids(url)
-        if realm_ids is None:
-            print("[yellow]Could not query the agent for realms (*list-realms); falling back to "
-                  "hostname match. Pass --host to target a specific batches dir.[/yellow]")
-        elif not realm_ids:
-            print("[yellow]The agent reports no enabled realms to match against.[/yellow]")
+    forwarded = list(ctx.args)
+    if url:
+        forwarded += ["-u", url]
+
+    exit_code, synced = push_configs(selected_projects, host, url, forwarded)
+    if synced == 0:
+        print("[yellow]Nothing synced: no registered project has a matching batches/<host>/ directory.[/yellow]")
+        raise typer.Exit(code=1)
+    raise typer.Exit(code=exit_code)
+
+
+@app.command(
+    name="sync",
+    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+)
+def sync(
+    ctx: typer.Context,
+    host: Optional[str] = typer.Option(
+        None, "--host", help="Sync configs only for this batches/<host>/ directory (overrides realm auto-match)."
+    ),
+    project: Optional[List[str]] = typer.Option(
+        None, "--project", "-p", help="Restrict to these registered projects (default: all)."
+    ),
+    url: Optional[str] = typer.Option(
+        None, "--url", "-u", help="ycommand url (default: ws://127.0.0.1:1991)."
+    ),
+):
+    """
+    Push binaries AND configs together against the local agent.
+
+    A binary bump must never ship without its matching config bump: a new
+    runtime against a stale config is exactly what broke OIDC under
+    verify-by-default (new fail-closed binary, old no-CA config). 'sync'
+    couples the two steps so neither is forgotten.
+
+    Runs 'sync-binaries' then 'sync-configs'. Shared extra args (e.g. -n
+    dry-run, -a all, OAuth2 options) are forwarded to BOTH tools; use the
+    individual commands for tool-specific flags (--no-restart, -r, --yunos-dir).
+    After 'sync', run 'upgrade-yunos' to promote the new releases.
+    """
+    _, selected_projects = resolve_selection(project, False)
+    if not selected_projects:
+        print("[yellow]No projects registered. Use 'yunetas register-project <path>'.[/yellow]")
+        raise typer.Exit(code=1)
 
     forwarded = list(ctx.args)
     if url:
         forwarded += ["-u", url]
 
-    exit_code = 0
-    synced = 0
-    for proj in selected_projects:
-        batches_dir = os.path.join(project_yunos_dir(proj), "batches")
-        if not os.path.isdir(batches_dir):
-            print(f"[yellow]Skipping {proj['name']}: no '{batches_dir}'.[/yellow]")
-            continue
+    # 1) Binaries first. If the push fails, do NOT proceed to configs: that
+    #    would leave binaries and configs out of step — the very thing 'sync'
+    #    exists to prevent.
+    print("[cyan]== sync binaries ==[/cyan]")
+    ret = run_agent_tool("sync_binaries.py", forwarded)
+    if ret != 0:
+        print("[red]sync-binaries failed; not syncing configs (would leave binaries and configs out of step).[/red]")
+        raise typer.Exit(code=ret)
 
-        hosts = sorted(
-            d for d in os.listdir(batches_dir)
-            if os.path.isdir(os.path.join(batches_dir, d))
-        )
-
-        if host:
-            if host not in hosts:
-                print(f"[yellow]Skipping {proj['name']}: no batches for host '{host}' (available: {', '.join(hosts) or 'none'}).[/yellow]")
-                continue
-            chosen_hosts = [host]
-        elif realm_ids is not None:
-            chosen_hosts = [h for h in hosts if h in realm_ids]
-            if not chosen_hosts:
-                print(f"[yellow]Skipping {proj['name']}: no batches/<host>/ matches a local realm_id "
-                      f"(batches: {', '.join(hosts) or 'none'}; realms: {', '.join(sorted(realm_ids)) or 'none'}).[/yellow]")
-                continue
-        else:
-            # Fallback: legacy single-hostname guess (agent unreachable).
-            candidates = {socket.gethostname(), socket.getfqdn()}
-            chosen_hosts = [h for h in hosts if h in candidates]
-            if len(chosen_hosts) != 1:
-                print(f"[red]Error: cannot guess the target host for '{proj['name']}'. Pass --host. Available: {', '.join(hosts) or 'none'}[/red]")
-                raise typer.Exit(code=1)
-
-        for chosen in chosen_hosts:
-            config_dir = os.path.join(batches_dir, chosen)
-            print(f"[cyan]Syncing configs: {proj['name']} -> {chosen} ({config_dir})[/cyan]")
-            ret = run_agent_tool("sync_configs.py", forwarded + [config_dir])
-            synced += 1
-            if ret != 0:
-                exit_code = ret
-
+    # 2) Then configs.
+    print("[cyan]== sync configs ==[/cyan]")
+    exit_code, synced = push_configs(selected_projects, host, url, forwarded)
     if synced == 0:
-        print("[yellow]Nothing synced: no registered project has a matching batches/<host>/ directory.[/yellow]")
-        raise typer.Exit(code=1)
+        print("[yellow]Binaries synced, but no matching batches/<host>/ directory to sync configs from.[/yellow]")
     raise typer.Exit(code=exit_code)
 
 
@@ -422,21 +432,29 @@ def upgrade_yunos(
         print("[red]Error: ycommand not found in PATH.[/red]")
         raise typer.Exit(code=1)
 
-    # 1) Rollback snapshot (idempotent by name).
+    # 1) Rollback snapshot. Never stack a new snap on an already-active one:
+    #    if a snap is active (e.g. a prior activate-snap rollback in progress),
+    #    reuse it as the rollback point instead of shooting another. Otherwise
+    #    fall back to the by-name idempotency check.
     if not no_snap:
-        name = snap_name or f"pre-upgrade-{datetime.now():%Y%m%d}"
-        exists = snap_exists(ycommand, url, name)
-        if exists:
-            print(f"[yellow]Snap '{name}' already exists; reusing it as the rollback point.[/yellow]")
+        active = active_snap_name(ycommand, url)
+        if active:
+            print(f"[yellow]Snap '{active}' is already active; reusing it as the rollback point "
+                  f"(not shooting a new one).[/yellow]")
         else:
-            ok, _ = run_ycommand(
-                ycommand, url,
-                f"shoot-snap name={name} description=before-upgrade-yunos",
-                dry_run,
-            )
-            if not ok and not dry_run:
-                print("[red]Error: shoot-snap failed; aborting before any change.[/red]")
-                raise typer.Exit(code=1)
+            name = snap_name or f"pre-upgrade-{datetime.now():%Y%m%d}"
+            exists = snap_exists(ycommand, url, name)
+            if exists:
+                print(f"[yellow]Snap '{name}' already exists; reusing it as the rollback point.[/yellow]")
+            else:
+                ok, _ = run_ycommand(
+                    ycommand, url,
+                    f"shoot-snap name={name} description=before-upgrade-yunos",
+                    dry_run,
+                )
+                if not ok and not dry_run:
+                    print("[red]Error: shoot-snap failed; aborting before any change.[/red]")
+                    raise typer.Exit(code=1)
 
     # 2) find-new-yunos preview. Suppress the raw JSON echo; we render our
     #    own formatted list from the parsed preview below.
@@ -631,6 +649,69 @@ def run_agent_tool(script_name, args, cwd=None):
     return result.returncode
 
 
+def push_configs(selected_projects, host, url, forwarded):
+    """
+    Realm-match each selected project's batches/<host>/ directories and run
+    sync_configs.py on every match. Shared by the 'sync-configs' and 'sync'
+    commands. Returns (exit_code, synced_count).
+
+    Without `host`, batches dirs are matched against the realm_ids the local
+    agent manages ('*list-realms'); with `host`, only that dir is targeted; if
+    the agent is unreachable it falls back to the legacy single-hostname guess.
+    """
+    # Without --host, auto-match batches dirs against the agent's realm_ids.
+    realm_ids = None
+    if not host:
+        realm_ids = local_realm_ids(url)
+        if realm_ids is None:
+            print("[yellow]Could not query the agent for realms (*list-realms); falling back to "
+                  "hostname match. Pass --host to target a specific batches dir.[/yellow]")
+        elif not realm_ids:
+            print("[yellow]The agent reports no enabled realms to match against.[/yellow]")
+
+    exit_code = 0
+    synced = 0
+    for proj in selected_projects:
+        batches_dir = os.path.join(project_yunos_dir(proj), "batches")
+        if not os.path.isdir(batches_dir):
+            print(f"[yellow]Skipping {proj['name']}: no '{batches_dir}'.[/yellow]")
+            continue
+
+        hosts = sorted(
+            d for d in os.listdir(batches_dir)
+            if os.path.isdir(os.path.join(batches_dir, d))
+        )
+
+        if host:
+            if host not in hosts:
+                print(f"[yellow]Skipping {proj['name']}: no batches for host '{host}' (available: {', '.join(hosts) or 'none'}).[/yellow]")
+                continue
+            chosen_hosts = [host]
+        elif realm_ids is not None:
+            chosen_hosts = [h for h in hosts if h in realm_ids]
+            if not chosen_hosts:
+                print(f"[yellow]Skipping {proj['name']}: no batches/<host>/ matches a local realm_id "
+                      f"(batches: {', '.join(hosts) or 'none'}; realms: {', '.join(sorted(realm_ids)) or 'none'}).[/yellow]")
+                continue
+        else:
+            # Fallback: legacy single-hostname guess (agent unreachable).
+            candidates = {socket.gethostname(), socket.getfqdn()}
+            chosen_hosts = [h for h in hosts if h in candidates]
+            if len(chosen_hosts) != 1:
+                print(f"[red]Error: cannot guess the target host for '{proj['name']}'. Pass --host. Available: {', '.join(hosts) or 'none'}[/red]")
+                raise typer.Exit(code=1)
+
+        for chosen in chosen_hosts:
+            config_dir = os.path.join(batches_dir, chosen)
+            print(f"[cyan]Syncing configs: {proj['name']} -> {chosen} ({config_dir})[/cyan]")
+            ret = run_agent_tool("sync_configs.py", forwarded + [config_dir])
+            synced += 1
+            if ret != 0:
+                exit_code = ret
+
+    return exit_code, synced
+
+
 #--------------------------------------------------#
 #   ycommand helpers (talk to the local agent)
 #--------------------------------------------------#
@@ -737,6 +818,36 @@ def snap_exists(ycommand, url, name):
         return None
     text = _ANSI_RE.sub("", res.stdout or "")
     return f'"{name}"' in text
+
+
+def active_snap_name(ycommand, url):
+    """
+    Name of the currently active snap on the agent, or None if none is active.
+    Returns None too if the snap list can't be read (the caller then falls back
+    to the by-name idempotency check). Uses '*snaps' (the leading '*' makes
+    ycommand emit raw JSON); the agent keeps at most one snap active (treedb
+    activates a single tag), so the first record flagged active wins.
+    """
+    cmd = [ycommand]
+    if url:
+        cmd += ["-u", url]
+    cmd += ["-c", "*snaps"]
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if res.returncode != 0:
+        return None
+    try:
+        data = _parse_leading_json(res.stdout)
+    except (ValueError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, list):
+        return None
+    for snap in data:
+        if isinstance(snap, dict) and snap.get("active"):
+            return snap.get("name") or "(unnamed)"
+    return None
 
 
 def kconfig2include(config_file_path):
