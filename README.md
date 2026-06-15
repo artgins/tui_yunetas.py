@@ -48,11 +48,37 @@ yunetas init|build|clean <name>...  # only those projects (SDK skipped)
 yunetas init|build|clean --sdk-only # only the SDK
 
 # Deploy helpers (wrappers over $YUNETAS_BASE/tools/agent/sync_*.py)
-yunetas sync-binaries [-n|-a|...]                 # outputs/yunos vs the local agent
-yunetas sync-configs [-n|-a|-r|...]               # auto-match batches/<host>/ to the agent's realm_ids
+yunetas sync                  [-n|-a|...]          # binaries AND configs together (recommended)
+yunetas sync-binaries         [-n|-a|...]          # outputs/yunos vs the local agent
+yunetas sync-configs          [-n|-a|-r|...]       # auto-match batches/<host>/ to the agent's realm_ids
 yunetas sync-configs --host <host> [...]          # or target one batches dir explicitly
 yunetas upgrade-yunos [--no-snap|--snap-name N|-y|-n]  # snapshot -> find-new-yunos -> deactivate-snap
 ```
+
+
+# Deploy flow
+
+Two steps: **push the artifacts, then promote them.**
+
+```shell
+# 1. Push binaries AND configs in one go (so a binary bump never ships
+#    without its matching config bump — the verify-by-default footgun:
+#    a new fail-closed runtime against a stale no-CA config breaks OIDC).
+yunetas sync                  # = sync-binaries + sync-configs
+
+# 2. Promote the freshly installed releases to primary and restart.
+yunetas upgrade-yunos         # snapshot -> find-new-yunos (confirm) -> deactivate-snap
+```
+
+`sync` does not restart anything by itself; `upgrade-yunos` is the promote
+step. It shoots a rollback snapshot first (idempotent by name; reuses an
+already-active snap instead of stacking a new one; `--no-snap` to skip), then
+previews `find-new-yunos` and asks before `create=1`, then `deactivate-snap`
+triggers `restart_nodes()` on the agent. Preview either step with `-n`.
+
+For a same-version hot-patch (no `APP_VERSION` bump) you don't need
+`upgrade-yunos`: `sync` then bounce the affected yunos (`kill-yuno` +
+`run-yuno` / `play-yuno`).
 
 
 # How build this package
