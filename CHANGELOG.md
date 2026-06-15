@@ -1,5 +1,22 @@
 # **Changelog**
 
+## 0.11.1 -- 15-Jun-2026
+Make a resumed upgrade idempotent instead of aborting.
+- When a prior update installed binaries and registered the new yuno rows but
+  never promoted them (`deactivate-snap` missing), re-running the deploy hit the
+  agent's idempotent "... already exists" answers. `sync-binaries` /
+  `sync-configs` painted those as red `FAILED`, and `upgrade-yunos` aborted at
+  `find-new-yunos create=1` — skipping the one step that mattered,
+  `deactivate-snap` (the operator had to run it by hand).
+- `sync-binaries` / `sync-configs`: an `install-binary` / `create-config` that
+  comes back "... already exists" is now reported as `ALREADY PRESENT`
+  (idempotent, yellow) and counts as ok, not a failure.
+- `upgrade-yunos`: if `find-new-yunos create=1` fails only because the rows
+  already exist, it no longer aborts — it falls through to `deactivate-snap`,
+  which performs the promotion. The agent's comments are surfaced (no longer
+  suppressed) so a mixed or genuine failure is still visible, and a
+  non-idempotent error still fails closed.
+
 ## 0.11.0 -- 15-Jun-2026
 Couple binary+config deploys, and don't stack snaps in `upgrade-yunos`.
 - New `sync` command: pushes binaries AND configs in one step (`sync-binaries`

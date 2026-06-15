@@ -480,12 +480,28 @@ def upgrade_yunos(
             raise typer.Exit(code=1)
 
     # Suppress the verbose created-node table; print a one-line summary instead.
-    ok, _ = run_ycommand(ycommand, url, "find-new-yunos create=1", dry_run, echo_output=False)
-    if not ok and not dry_run:
+    ok, out = run_ycommand(ycommand, url, "find-new-yunos create=1", dry_run, echo_output=False)
+    # Resumed upgrade: a prior run already registered the new yuno rows but never
+    # promoted them (deactivate-snap missing). The preview still lists them because
+    # the OLD primary rows survive and a newer binary is found for each, so create=1
+    # re-runs create-yuno and the agent answers "Yuno already exists" (result<0).
+    # That is idempotent: the rows are already there. Don't abort — fall through to
+    # deactivate-snap, the step that actually promotes them. Only a non-idempotent
+    # failure aborts, so a genuine create-yuno error still fails closed.
+    already = out is not None and "already exists" in out
+    if not ok and not dry_run and out:
+        # Surface the agent's comments (suppressed above) so a mixed or genuine
+        # failure is never hidden behind the idempotent fall-through.
+        print(f"[dim]{out}[/dim]")
+    if not ok and not already and not dry_run:
         print("[red]Error: find-new-yunos create=1 failed; aborting before restart.[/red]")
         raise typer.Exit(code=1)
     if not dry_run:
-        print(f"[green]Created {len(preview)} new yuno row(s).[/green]")
+        if already:
+            print("[yellow]New yuno row(s) already registered by a prior run; "
+                  "proceeding to promote.[/yellow]")
+        else:
+            print(f"[green]Created {len(preview)} new yuno row(s).[/green]")
 
     # 4) deactivate-snap -> restart_nodes() on the agent.
     ok, _ = run_ycommand(ycommand, url, "deactivate-snap", dry_run)
