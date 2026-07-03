@@ -144,6 +144,65 @@ def init(
     final_messages.append(f"[yellow]init[/yellow] done: created build directories, got compiler and build type from .config ([blue]menuconfig[/blue])\n")
     print("\n".join(final_messages))
 
+
+def ensure_ext_libs_installed():
+    """
+    Guard before building: verify the installed external libraries match the
+    version declared in configure-libs.sh (its `VERSION="…"` vs the
+    `VERSION_INSTALLED.txt` written by the last successful install). A mismatch
+    means `kernel/c/linux-ext-libs` was bumped but not rebuilt/reinstalled, so
+    the SDK (and projects) would link against a stale `outputs_ext/`.
+
+    Skipped on runtime-only (.deb/.rpm sparse SDK) nodes, which ship prebuilt
+    external libs and no `linux-ext-libs` source.
+    """
+    ext_dir = os.path.join(YUNETAS_BASE, "kernel", "c", "linux-ext-libs")
+    configure = os.path.join(ext_dir, "configure-libs.sh")
+    installed = os.path.join(ext_dir, "VERSION_INSTALLED.txt")
+
+    if not os.path.isfile(configure):
+        return  # runtime-only node: no ext-libs source to check
+
+    required = None
+    try:
+        with open(configure, encoding="utf-8") as fh:
+            for line in fh:
+                m = re.match(r'^VERSION="([^"]+)"', line)
+                if m:
+                    required = m.group(1).strip()
+                    break
+    except OSError:
+        return  # unreadable: don't block the build
+    if not required:
+        return  # couldn't parse the declared version: don't block
+
+    current = None
+    if os.path.isfile(installed):
+        try:
+            with open(installed, encoding="utf-8") as fh:
+                for line in fh:
+                    line = line.strip()
+                    if line:
+                        current = line
+                        break
+        except OSError:
+            current = None
+
+    if current == required:
+        return
+
+    if current is None:
+        detail = "the external libraries have not been built yet"
+    else:
+        detail = f"installed [red]{current}[/red] != required [green]{required}[/green]"
+    print(
+        f"[red]Error: linux-ext-libs is out of date ({detail}).[/red]\n"
+        f"[yellow]Rebuild the external libraries before building:[/yellow]\n"
+        f"    cd {ext_dir} && ./extrae.sh && ./configure-libs.sh"
+    )
+    raise typer.Exit(code=1)
+
+
 @app.command()
 def build(
     projects: Optional[List[str]] = typer.Argument(
@@ -157,6 +216,10 @@ def build(
     Build and install yunetas, then the registered projects (see register-project).
     """
     include_sdk, selected_projects = resolve_selection(projects, sdk_only)
+
+    # Refuse to build against a stale outputs_ext/ (linux-ext-libs bumped but
+    # not reinstalled): configure-libs.sh VERSION must match VERSION_INSTALLED.txt.
+    ensure_ext_libs_installed()
 
     setup_yuneta_environment(False)
 
