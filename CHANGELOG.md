@@ -1,5 +1,19 @@
 # **Changelog**
 
+## 0.12.1 -- 17-Jul-2026
+Fix shell completion: keep the startup banner off stdout.
+- The `Using YUNETAS_BASE at ...` line printed at import time went to **stdout**,
+  which runs on every invocation — including the shell-completion one, whose
+  `COMPREPLY` is captured from stdout. So the banner showed up as a bogus
+  completion candidate and broke `yunetas <tab>`. It now prints to **stderr**
+  (matching the error path just above it); stdout carries only the candidates.
+- Get it: reinstall the CLI (`pipx install --force <tui_yunetas path>` or, once
+  published, `pipx upgrade yunetas`), then `yunetas --install-completion` and
+  restart the shell.
+
+## 0.12.0 -- 08-Jul-2026
+- Verify `linux-ext-libs` is up to date before build.
+
 ## 0.11.1 -- 15-Jun-2026
 Make a resumed upgrade idempotent instead of aborting.
 - When a prior update installed binaries and registered the new yuno rows but
