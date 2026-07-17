@@ -58,11 +58,12 @@ if not YUNETAS_BASE:
           "or ensure /yuneta/development[/yunetas] exists.[/red]", file=sys.stderr)
     sys.exit(1)
 
-# stderr, not stdout: this banner runs on every invocation, including the
-# shell-completion one, whose COMPREPLY is captured from stdout — a stdout
-# line here shows up as a bogus completion candidate.
+# Don't print here: this module runs on every invocation, including the
+# shell-completion one, whose COMPREPLY is captured from the command's stdout —
+# a line printed here (stdout or, when redirected, either stream) turns into a
+# bogus completion candidate. The base is still recapped by final_messages at
+# the end of init/build/clean, which is where it is actually useful.
 msg = f"Using [green]YUNETAS_BASE[/green] at {YUNETAS_BASE}"
-print(msg, file=sys.stderr)
 final_messages.append(msg)
 
 # If you also want to verify a specific file exists (like the CMake case):

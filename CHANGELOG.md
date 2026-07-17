@@ -1,5 +1,18 @@
 # **Changelog**
 
+## 0.12.2 -- 17-Jul-2026
+Drop the per-invocation `Using YUNETAS_BASE at ...` banner.
+- 0.12.1 moved it to stderr to unbreak completion, but it still printed on every
+  single invocation. It is now not printed at import time at all — the base is
+  still recapped by `final_messages` at the end of `init`/`build`/`clean`, which
+  is the only place it was actually useful. Completion invocations now emit
+  nothing but the candidates on either stream.
+- **Shell completion without editing your dotfiles:** drop the script into the
+  bash-completion user dir, which its dynamic loader picks up on demand — no
+  `.bashrc` change (unlike `yunetas --install-completion`):
+  `yunetas --show-completion > ~/.local/share/bash-completion/completions/yunetas`,
+  then open a new shell.
+
 ## 0.12.1 -- 17-Jul-2026
 Fix shell completion: keep the startup banner off stdout.
 - The `Using YUNETAS_BASE at ...` line printed at import time went to **stdout**,
