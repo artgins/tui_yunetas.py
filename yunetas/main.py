@@ -678,6 +678,17 @@ def project_yunos_dir(project):
     return os.path.join(project["path"], "yunos")
 
 
+def sdk_has_sources():
+    """
+    True when YUNETAS_BASE holds the framework sources (a development node).
+
+    A runtime-only node (.deb/.rpm sparse SDK) ships outputs/, outputs_ext/,
+    tools/ and .config but no sources and no YUNETA_VERSION: there is nothing
+    to init/build/clean there, only the registered projects.
+    """
+    return os.path.isfile(os.path.join(YUNETAS_BASE, "YUNETA_VERSION"))
+
+
 def resolve_selection(project_names, sdk_only):
     """
     Decide what init/build/clean must process.
@@ -691,12 +702,22 @@ def resolve_selection(project_names, sdk_only):
             - no names, no flag  -> SDK + every registered project
             - names given        -> only those projects (SDK skipped)
             - --sdk-only         -> only the SDK
+
+    On a runtime-only node the SDK is never selectable: with no names the
+    command silently narrows to the registered projects, and --sdk-only is an
+    error (it asks for the one thing that cannot be done there).
     """
     if sdk_only and project_names:
         print("[red]Error: --sdk-only and project names are mutually exclusive.[/red]")
         raise typer.Exit(code=1)
 
+    runtime_only = not sdk_has_sources()
+
     if sdk_only:
+        if runtime_only:
+            print(f"[red]Error: no YUNETA_VERSION in '{YUNETAS_BASE}' (runtime-only SDK): "
+                  f"there are no framework sources to build.[/red]")
+            raise typer.Exit(code=1)
         return True, []
 
     registered = load_registered_projects()
@@ -710,6 +731,15 @@ def resolve_selection(project_names, sdk_only):
                 raise typer.Exit(code=1)
             selected.append(by_name[name])
         return False, selected
+
+    if runtime_only:
+        if not registered:
+            print(f"[red]Error: runtime-only SDK in '{YUNETAS_BASE}' and no registered project: "
+                  f"nothing to do. Register one with 'yunetas register-project <path>'.[/red]")
+            raise typer.Exit(code=1)
+        print("[yellow]Runtime-only SDK: skipping the framework, "
+              "processing the registered projects.[/yellow]")
+        return False, registered
 
     return True, registered
 

@@ -55,6 +55,12 @@ yunetas sync-configs --host <host> [...]          # or target one batches dir ex
 yunetas upgrade-yunos [--no-snap|--snap-name N|-y|-n]  # snapshot -> find-new-yunos -> deactivate-snap
 ```
 
+On a **runtime-only node** (installed from the `.deb`/`.rpm`: `outputs/`,
+`outputs_ext/`, `tools/` and `.config`, but no framework sources and no
+`YUNETA_VERSION`) there is no SDK to build, so `init`/`build`/`clean` with no
+arguments process the registered projects only — naming them is optional.
+`--sdk-only` is an error there.
+
 
 # Deploy flow
 

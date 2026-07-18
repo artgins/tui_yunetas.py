@@ -1,5 +1,21 @@
 # **Changelog**
 
+## 0.13.0 -- 18-Jul-2026
+Make `init`/`build`/`clean` usable on runtime-only nodes.
+- On a node installed from the `.deb`/`.rpm` (sparse SDK: `outputs/`,
+  `outputs_ext/`, `tools/`, `.config`, but no framework sources and no
+  `YUNETA_VERSION`), the bare `yunetas init` / `yunetas build` still selected
+  the SDK: `build` skipped every missing SDK directory and then failed on the
+  project's absent `yunos/build`, while `init` bailed out with *"refusing to
+  reset outputs/"*. The only working form was naming the project explicitly.
+- The SDK is now **never** selectable on such a node: with no project names the
+  command narrows to the registered projects and says so, so bare
+  `yunetas init` + `yunetas build` work exactly as on a development node.
+- `--sdk-only` there is now a clear error (it asks for the one thing that node
+  cannot do), and a runtime-only node with an empty project registry fails
+  pointing at `register-project` instead of silently doing nothing.
+- Development nodes (framework sources present) are unaffected.
+
 ## 0.12.2 -- 17-Jul-2026
 Drop the per-invocation `Using YUNETAS_BASE at ...` banner.
 - 0.12.1 moved it to stderr to unbreak completion, but it still printed on every
