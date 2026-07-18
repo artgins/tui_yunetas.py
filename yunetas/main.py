@@ -42,7 +42,12 @@ candidates += ["/yuneta/development/yunetas", "/yuneta/development"]
 
 YUNETAS_BASE = next((p for p in candidates if p and os.path.isdir(p)), None)
 
-final_messages = [f"\n[yellow]WARNING:[/yellow] The file [green]'yuneta_config.h'[/green] is created by init or build option but from options selected previously by [blue]menuconfig[/blue] utility \n"]
+# Recap printed at the end of init/build/clean. Informational lines go ONLY
+# here (never printed as they happen): the recap is the single place the user
+# reads them, and printing both duplicated the whole setup block per command.
+# The menuconfig warning is appended by setup_yuneta_environment() when the
+# framework sources are present — a runtime-only node has no menuconfig to run.
+final_messages = []
 
 compiler = ""
 
@@ -1043,6 +1048,15 @@ def setup_yuneta_environment(reset_outputs=False):
               f"refusing to reset outputs/. Use 'yunetas init <project>'.")
         sys.exit(1)
 
+    if has_framework_sources:
+        # Only meaningful where menuconfig can be run: a runtime-only node gets
+        # its .config from the .deb/.rpm and has no Kconfig tree to re-run.
+        final_messages.append(
+            f"\n[yellow]WARNING:[/yellow] The file [green]'yuneta_config.h'[/green] is created "
+            f"by init or build option but from options selected previously by "
+            f"[blue]menuconfig[/blue] utility \n"
+        )
+
 
     #--------------------------------------------------#
     #   Detect compiler from .config (Clang, GCC)
@@ -1103,7 +1117,6 @@ def setup_yuneta_environment(reset_outputs=False):
             with open(yuneta_version_h_path, "w") as header_file:
                 header_file.write(version_header_content)
             msg = f"Generated 'yuneta_version.h' at {yuneta_version_h_path}"
-            print(msg)
             final_messages.append(msg)
 
         except Exception as e:
@@ -1136,33 +1149,27 @@ def setup_yuneta_environment(reset_outputs=False):
             with open(yuneta_config_h_path, "w") as header_file:
                 header_file.write(config_header_content)
             msg = f"Generated 'yuneta_config.h' at {yuneta_config_h_path}"
-            print(msg)
             final_messages.append(msg)
         except Exception as e:
             print(f"Error: Unable to generate yuneta_config.h. {e}")
             sys.exit(1)
 
     msg = f"Setup completed successfully:"
-    print(msg)
     final_messages.append(msg)
 
     msg = f"  - YUNETAS_BASE: {YUNETAS_BASE}"
-    print(msg)
     final_messages.append(msg)
 
     if has_framework_sources:
         msg = f"  - YUNETA_VERSION: {yuneta_version_path2}"
     else:
         msg = f"  - YUNETA_VERSION: (runtime-only SDK, headers shipped in outputs/include)"
-    print(msg)
     final_messages.append(msg)
 
     msg = f"  - [green]'.config'[/green]: {yuneta_config_path}"
-    print(msg)
     final_messages.append(msg)
 
     msg = f"  - Include directory: {inc_dest_dir}"
-    print(msg)
     final_messages.append(msg)
 
 

@@ -1,5 +1,17 @@
 # **Changelog**
 
+## 0.13.1 -- 18-Jul-2026
+Quieter `init`/`build`/`clean` output.
+- The whole setup block (`Setup completed successfully`, `YUNETAS_BASE`,
+  `YUNETA_VERSION`, `.config`, include dir, `Generated 'yuneta_*.h'`) was both
+  printed as it happened **and** replayed in the closing recap, so every command
+  showed it twice. These informational lines now live only in the recap, which
+  is where they are read; errors still print immediately.
+- The `yuneta_config.h ... menuconfig` warning is no longer emitted on a
+  runtime-only node: its `.config` comes from the `.deb`/`.rpm` and there is no
+  Kconfig tree to re-run `menuconfig` against, so the advice was unactionable.
+  Nodes with the framework sources keep it.
+
 ## 0.13.0 -- 18-Jul-2026
 Make `init`/`build`/`clean` usable on runtime-only nodes.
 - On a node installed from the `.deb`/`.rpm` (sparse SDK: `outputs/`,
