@@ -1,5 +1,32 @@
 # **Changelog**
 
+## 0.16.0 -- 19-Jul-2026
+Secret overlays, so credentials stop living in project repos.
+
+- **`--node` now passes `~/.yuneta/secrets/<node>/` to the config push.** A
+  committed config declares a credential with the value `"__SECRET__"`; the
+  value itself lives only on the deploy machine, in an overlay holding just
+  the secret fields, deep-merged before the push. The *shape* of the config
+  stays versioned in git, which is what makes it reconstructable; only the
+  value is withheld.
+
+  This exists because an SMTP password was committed in cleartext in a project
+  repo. Note that adopting this does NOT fix that one: it is still in git
+  history, and the only remedy there is rotating the credential.
+
+- **`list-secrets`** shows which configs have an overlay and which FIELDS each
+  supplies — never values — and flags any file whose mode is not 600.
+
+- **There is deliberately no `set-secret`.** A command taking a credential as
+  an argument writes it to your shell history and exposes it in the process
+  table. Overlays are written with an editor.
+
+- **Rotation bumps `__version__` in the committed config.** The overlay carries
+  no version of its own, so a rotated value with an unchanged version would
+  never be pushed. Bumping the config version is the existing batches
+  convention anyway, and it leaves the *fact* of the rotation auditable in git
+  while the value never touches it.
+
 ## 0.15.0 -- 19-Jul-2026
 A node registry, so a remote deploy is `--node <name>`.
 

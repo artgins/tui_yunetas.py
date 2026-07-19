@@ -96,6 +96,13 @@ PROJECTS_REGISTRY_PATH = os.path.join(YUNETA_USER_DIR, "projects.json")
 # to be listed and shared is how credentials leak.
 NODES_REGISTRY_PATH = os.path.join(YUNETA_USER_DIR, "nodes.json")
 
+# Secret overlays, per registered node: ~/.yuneta/secrets/<node>/<config-id>.json
+# Holds ONLY the credential fields; the shape of the config stays versioned in
+# the project repo, declaring each one as "__SECRET__". This is the one place
+# in the deploy path that legitimately holds secrets, so it is 0700/0600 and
+# lives outside every git tree.
+SECRETS_DIR = os.path.join(YUNETA_USER_DIR, "secrets")
+
 # Env vars consulted for the credentials the registry deliberately omits.
 ENV_OAUTH_PASSW = "YUNETA_OAUTH_PASSW"
 ENV_OAUTH_CLIENT_SECRET = "YUNETA_OAUTH_CLIENT_SECRET"
@@ -490,6 +497,69 @@ def list_nodes():
         print(f"  [cyan]{n.get('name', '?'):<20}[/cyan] {access}{identity}")
 
 
+@app.command(name="list-secrets")
+def list_secrets(
+    node: Optional[str] = typer.Option(
+        None, "--node", "-N", help="Only this registered node (default: all)."
+    ),
+):
+    """
+    List which configs have a secret overlay on this machine, and WHICH FIELDS
+    each one supplies. Values are never read or printed.
+
+    There is deliberately no 'set-secret' command: it would put the credential
+    in your shell history and in the process table, where every other user of
+    the machine can read it. Write the overlay with an editor instead:
+
+      mkdir -p ~/.yuneta/secrets/<node> && chmod 700 ~/.yuneta/secrets/<node>
+      $EDITOR ~/.yuneta/secrets/<node>/<config-id>.json   # then chmod 600
+
+    The file holds ONLY the secret fields, in the same shape as the config:
+
+      {"global": {"smtp_password": "…"}}
+    """
+    nodes = [node] if node else sorted(
+        n.get("name") for n in load_registered_nodes() if n.get("name")
+    )
+    if not nodes:
+        print("[yellow]No nodes registered.[/yellow]")
+        return
+
+    def field_paths(value, prefix=""):
+        if isinstance(value, dict):
+            out = []
+            for k, v in value.items():
+                out += field_paths(v, f"{prefix}.{k}" if prefix else k)
+            return out
+        return [prefix]
+
+    found_any = False
+    for name in nodes:
+        directory = node_secrets_dir(name)
+        if not directory:
+            continue
+        entries = sorted(f for f in os.listdir(directory) if f.endswith(".json"))
+        if not entries:
+            continue
+        found_any = True
+        print(f"[cyan]{name}[/cyan]  [dim]{directory}[/dim]")
+        for entry in entries:
+            path = os.path.join(directory, entry)
+            mode = oct(os.stat(path).st_mode & 0o777)[2:]
+            warn = "" if mode == "600" else f"  [red]mode {mode}, expected 600[/red]"
+            try:
+                with open(path) as f:
+                    data = json.load(f)
+                fields = ", ".join(field_paths(data)) or "(empty)"
+            except Exception as e:
+                fields = f"[red]unreadable: {e}[/red]"
+            print(f"    {entry[:-len('.json')]:<30} {fields}{warn}")
+
+    if not found_any:
+        print("[yellow]No secret overlays. Configs needing one declare it as "
+              '"__SECRET__" and the push refuses until it is supplied.[/yellow]')
+
+
 @app.command(
     name="sync-binaries",
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
@@ -566,6 +636,9 @@ def sync_configs(
         forwarded = list(ctx.args)
         if node:
             forwarded += conn.args()
+            secrets = node_secrets_dir(node)
+            if secrets:
+                forwarded += ["--secrets-dir", secrets]
         elif url:
             forwarded += ["-u", url]
 
@@ -629,6 +702,12 @@ def sync(
         elif url:
             forwarded += ["-u", url]
 
+        # Binaries have no secret overlay; only the config push takes one.
+        config_args = list(forwarded)
+        secrets = node_secrets_dir(node)
+        if secrets:
+            config_args += ["--secrets-dir", secrets]
+
         # 1) Binaries first. If the push fails, do NOT proceed to configs: that
         #    would leave binaries and configs out of step — the very thing 'sync'
         #    exists to prevent.
@@ -640,7 +719,7 @@ def sync(
 
         # 2) Then configs.
         print("[cyan]== sync configs ==[/cyan]")
-        exit_code, synced = push_configs(selected_projects, host, conn.url, forwarded)
+        exit_code, synced = push_configs(selected_projects, host, conn.url, config_args)
 
     if synced == 0:
         print("[yellow]Binaries synced, but no matching batches/<host>/ directory to sync configs from.[/yellow]")
@@ -1068,6 +1147,21 @@ def resolve_node_connection(node_name, url, force_tunnel=False):
     # No node: behave as before. A bare url (or the tool's own default) with
     # no tunnel to manage.
     return NodeConnection({"name": "(none)", "url": url or "ws://127.0.0.1:1991"})
+
+
+def node_secrets_dir(node_name):
+    """
+    The secret-overlay directory for a node, or None if it has none.
+
+    Absence is normal: most configs carry no credential. It is the presence of
+    a "__SECRET__" placeholder in a committed config that makes an overlay
+    mandatory, and sync_configs refuses the push when one is missing — so a
+    forgotten overlay fails loudly rather than shipping an empty password.
+    """
+    if not node_name:
+        return None
+    path = os.path.join(SECRETS_DIR, node_name)
+    return path if os.path.isdir(path) else None
 
 
 def project_yunos_dir(project):
