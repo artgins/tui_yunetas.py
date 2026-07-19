@@ -135,21 +135,43 @@ def init(
     """
     include_sdk, selected_projects = resolve_selection(projects, sdk_only)
 
+    failed = []
+
     if include_sdk:
         setup_yuneta_environment(True)
-        process_directories(DIRECTORIES)
-        process_directories(["."])
+        failed += process_directories(DIRECTORIES)
+        failed += process_directories(["."])
     else:
         # Ensure outputs/include headers are up to date without wiping outputs
         setup_yuneta_environment(False)
 
     for project in selected_projects:
         print(f"[cyan]Project: {project['name']} ({project['path']})[/cyan]")
-        process_directories([project_yunos_dir(project)])
-        final_messages.append(f"Project [cyan]{project['name']}[/cyan] initialized.")
+        project_failed = process_directories([project_yunos_dir(project)])
+        failed += project_failed
+        if not project_failed:
+            final_messages.append(f"Project [cyan]{project['name']}[/cyan] initialized.")
 
     global compiler
     final_messages.append(f"\n[yellow]Compiler selected[/yellow]: [blue]{compiler}[/blue]\n")
+
+    #
+    #   Never claim success on top of a failed cmake. Saying "init done" and
+    #   exiting 0 there is what let a glibc mismatch look like a clean run:
+    #   the reason scrolls past, the recap contradicts it, and the build only
+    #   breaks later with "No rule to make target 'install'".
+    #
+    if failed:
+        final_messages.append(
+            f"[red]init[/red] FAILED: cmake did not configure "
+            f"{len(failed)} director{'y' if len(failed) == 1 else 'ies'}. "
+            f"Read the error above; no build directory is usable until it is fixed.\n"
+        )
+        for dir_path in failed:
+            final_messages.append(f"  [red]-[/red] {dir_path}")
+        print("\n".join(final_messages))
+        raise typer.Exit(code=1)
+
     final_messages.append(f"[yellow]init[/yellow] done: created build directories, got compiler and build type from .config ([blue]menuconfig[/blue])\n")
     print("\n".join(final_messages))
 
@@ -1230,7 +1252,16 @@ def process_directories(directories: List[str]):
 
     Args:
         directories (List[str]): List of directories to process.
+
+    Returns:
+        List of directories whose cmake failed. Empty means every one
+        configured. Callers MUST NOT report success without checking it: a
+        cmake that fails here (a glibc mismatch caught by libc_guard.cmake, a
+        missing dependency) leaves no Makefile behind, so the later build
+        breaks with an unrelated-looking error.
     """
+    failed = []
+
     base_path = Path(YUNETAS_BASE)
     if not base_path.is_dir():
         print(f"[red]Error: YUNETAS_BASE '{YUNETAS_BASE}' does not exist or is not a directory.[/red]")
@@ -1293,6 +1324,9 @@ def process_directories(directories: List[str]):
 
                 except subprocess.CalledProcessError as e:
                     print(f"[red]Error occurred while processing {dir_path}: {e}[/red]")
+                    failed.append(dir_path)
+
+    return failed
 
 
 def process_build_command(directories: List[str], command: List[str]):
@@ -1334,8 +1368,10 @@ def process_build_command(directories: List[str], command: List[str]):
                     subprocess.run(command, cwd=build_dir, check=True) #, env=env)
                 except subprocess.CalledProcessError as e:
                     print(f"[red]Error occurred while running '{' '.join(command)}' in {build_dir}: {e}[/red]")
-                    ret = -1
-                    exit(-1)
+                    # typer.Exit, not the bare `exit()`: that one is installed
+                    # by `site` and is absent under `python -S`, and it exits
+                    # 255 instead of a plain 1.
+                    raise typer.Exit(code=1)
             else:
                 print(f"[yellow]Skipping {dir_path}: No build directory found[/yellow]")
 

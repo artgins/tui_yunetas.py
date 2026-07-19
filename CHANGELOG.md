@@ -1,5 +1,24 @@
 # **Changelog**
 
+## 0.14.0 -- 19-Jul-2026
+`init` no longer reports success when cmake failed.
+
+- **`init` now fails when a cmake fails.** Its cmake loop caught
+  `CalledProcessError`, printed it, and carried on: the closing recap still
+  said `Project <name> initialized` and `init done`, and the exit code was
+  still `0`. So a build that could not possibly work looked like a clean run,
+  the real reason scrolled past above a recap that contradicted it, and the
+  breakage only surfaced later as `make: *** No rule to make target 'install'`.
+  `process_directories()` now returns the directories that failed; `init`
+  reports `init FAILED`, lists them, and exits `1`.
+
+  This surfaced with the SDK's new `libc_guard.cmake`, which refuses at
+  configure time to link prebuilt archives against a different glibc. The
+  guard fired correctly on the node and the CLI reported success anyway.
+
+- **`build` exits `1`, not `255`.** Its failure path used the bare `exit()`,
+  which is installed by `site` and is missing under `python -S`.
+
 ## 0.13.1 -- 18-Jul-2026
 Quieter `init`/`build`/`clean` output.
 - The whole setup block (`Setup completed successfully`, `YUNETAS_BASE`,
