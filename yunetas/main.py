@@ -12,6 +12,8 @@ import socket
 import sys
 import subprocess
 import shutil
+import time
+import atexit
 from datetime import datetime
 
 # # Check if YUNETAS_BASE is set, or derive it from the current directory if YUNETA_VERSION exists
@@ -83,6 +85,21 @@ final_messages.append(msg)
 # Format: {"projects": [{"name": ..., "path": ...}]}
 YUNETA_USER_DIR = os.path.join(os.path.expanduser("~"), ".yuneta")
 PROJECTS_REGISTRY_PATH = os.path.join(YUNETA_USER_DIR, "projects.json")
+
+# Nodes this machine deploys to (~/.yuneta/nodes.json), so a deploy is
+# `--node <name>` instead of re-typing a url plus four OAuth2 flags.
+#
+# NO SECRET EVER GOES IN HERE. The registry holds the identity of a node
+# (where it is, which issuer and client it trusts, which user we log in as)
+# and nothing you would mind reading out loud. Passwords and client secrets
+# come from the environment at call time; putting them in a file that exists
+# to be listed and shared is how credentials leak.
+NODES_REGISTRY_PATH = os.path.join(YUNETA_USER_DIR, "nodes.json")
+
+# Env vars consulted for the credentials the registry deliberately omits.
+ENV_OAUTH_PASSW = "YUNETA_OAUTH_PASSW"
+ENV_OAUTH_CLIENT_SECRET = "YUNETA_OAUTH_CLIENT_SECRET"
+ENV_OAUTH_JWT = "YUNETA_OAUTH_JWT"
 
 # Soft migration from the legacy in-tree location ($YUNETAS_BASE/.projects.json).
 # Done once: if the old file exists and the new one does not, move it across.
@@ -369,17 +386,134 @@ def list_projects():
         print(f"  [cyan]{p['name']:<20}[/cyan] {p['path']}  {state}")
 
 
+@app.command(name="register-node")
+def register_node(
+    name: str = typer.Argument(..., help="Short name to use with --node (e.g. 'controlador')."),
+    url: Optional[str] = typer.Option(
+        None, "--url", "-u", help="Agent url reachable from here, e.g. wss://host:1993."
+    ),
+    ssh: Optional[str] = typer.Option(
+        None, "--ssh", help="SSH target (user@host) to tunnel to the node's local agent port."
+    ),
+    agent_port: int = typer.Option(
+        1991, "--agent-port", help="Node-side agent port to tunnel to (default 1991)."
+    ),
+    issuer: Optional[str] = typer.Option(
+        None, "--issuer", "-I", help="OIDC issuer (wss:// nodes only)."
+    ),
+    client_id: Optional[str] = typer.Option(
+        None, "--client-id", "-Z", help="OAuth2 client_id (wss:// nodes only)."
+    ),
+    user_id: Optional[str] = typer.Option(
+        None, "--user-id", "-x", help="OAuth2 username (wss:// nodes only)."
+    ),
+):
+    """
+    Register a node so deploys can say '--node <name>' instead of repeating a
+    url and four OAuth2 flags. The registry lives in ~/.yuneta/nodes.json.
+
+    Give --url for a node whose agent is reachable from here (typically
+    wss:// on 1993), or --ssh for one whose agent listens only on loopback
+    (ws:// on 1991, the default and safer posture): the deploy then forwards a
+    local port over SSH. With both, --url wins unless the command is given
+    --tunnel.
+
+    NO PASSWORD IS STORED. This file records where a node is and which
+    identity we present, never a credential. Supply the secret at call time
+    via $YUNETA_OAUTH_PASSW, $YUNETA_OAUTH_CLIENT_SECRET or $YUNETA_OAUTH_JWT.
+    """
+    if not url and not ssh:
+        print("[red]Error: give --url (reachable agent) or --ssh (tunnel), or both.[/red]")
+        raise typer.Exit(code=1)
+
+    nodes = load_registered_nodes()
+    if any(n.get("name") == name for n in nodes):
+        print(f"[red]Error: node '{name}' is already registered.[/red]")
+        raise typer.Exit(code=1)
+
+    node = {"name": name}
+    for key, value in (
+        ("url", url),
+        ("ssh", ssh),
+        ("issuer", issuer),
+        ("client_id", client_id),
+        ("user_id", user_id),
+    ):
+        if value:
+            node[key] = value
+    if ssh and agent_port != 1991:
+        node["agent_port"] = agent_port
+
+    nodes.append(node)
+    save_registered_nodes(nodes)
+    print(f"[green]Registered node '{name}'.[/green]")
+    if url and url.startswith("wss://") and not issuer:
+        print("[yellow]Note: no --issuer stored; a wss:// agent will need the "
+              "OAuth2 flags passed by hand.[/yellow]")
+
+
+@app.command(name="unregister-node")
+def unregister_node(
+    name: str = typer.Argument(..., help="Registered node name."),
+):
+    """
+    Remove a node from the registry (the node itself is NOT touched).
+    """
+    nodes = load_registered_nodes()
+    remaining = [n for n in nodes if n.get("name") != name]
+    if len(remaining) == len(nodes):
+        known = ", ".join(sorted(n.get("name", "?") for n in nodes)) or "(none)"
+        print(f"[red]Error: node '{name}' is not registered. Registered: {known}[/red]")
+        raise typer.Exit(code=1)
+
+    save_registered_nodes(remaining)
+    print(f"[green]Unregistered node '{name}'.[/green]")
+
+
+@app.command(name="list-nodes")
+def list_nodes():
+    """
+    List the registered deploy targets.
+    """
+    nodes = load_registered_nodes()
+    if not nodes:
+        print("[yellow]No nodes registered. Use 'yunetas register-node <name> --url ... | --ssh ...'.[/yellow]")
+        return
+
+    for n in nodes:
+        access = n.get("url") or f"ssh:{n.get('ssh')}"
+        if n.get("url") and n.get("ssh"):
+            access += f"  (or ssh:{n['ssh']} with --tunnel)"
+        identity = ""
+        if n.get("user_id") or n.get("issuer"):
+            identity = f"  [dim]{n.get('user_id', '?')} @ {n.get('issuer', '?')}[/dim]"
+        print(f"  [cyan]{n.get('name', '?'):<20}[/cyan] {access}{identity}")
+
+
 @app.command(
     name="sync-binaries",
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
 )
-def sync_binaries(ctx: typer.Context):
+def sync_binaries(
+    ctx: typer.Context,
+    node: Optional[str] = typer.Option(
+        None, "--node", "-N", help="Registered node to deploy to (see 'yunetas list-nodes')."
+    ),
+    tunnel: bool = typer.Option(
+        False, "--tunnel", help="Force the node's SSH tunnel even if it also has a url."
+    ),
+):
     """
-    Compare outputs/yunos binaries with the local agent and push updates.
-    Wrapper over tools/agent/sync_binaries.py: every argument is forwarded
-    (e.g. -n dry-run, -a all, --no-restart, OAuth2 options).
+    Compare outputs/yunos binaries with an agent and push updates.
+
+    Targets the local agent by default; '--node <name>' resolves a registered
+    node's url and OAuth2 identity (and opens its SSH tunnel when that is how
+    it is reached). Wrapper over tools/agent/sync_binaries.py: every other
+    argument is forwarded (e.g. -n dry-run, -a all, --no-restart).
     """
-    ret = run_agent_tool("sync_binaries.py", ctx.args)
+    with resolve_node_connection(node, None, tunnel) as conn:
+        extra = conn.args() if node else []
+        ret = run_agent_tool("sync_binaries.py", list(ctx.args) + extra)
     if ret == 0 and not ({"-n", "--dry-run"} & set(ctx.args)):
         print("[dim]Reminder: now sync the matching configs ('yunetas sync-configs', "
               "or 'yunetas sync' to push both) — a new binary against a stale config "
@@ -402,6 +536,12 @@ def sync_configs(
     url: Optional[str] = typer.Option(
         None, "--url", "-u", help="ycommand url (default: ws://127.0.0.1:1991), used for realm auto-match and forwarded to the sync."
     ),
+    node: Optional[str] = typer.Option(
+        None, "--node", "-N", help="Registered node to deploy to (see 'yunetas list-nodes')."
+    ),
+    tunnel: bool = typer.Option(
+        False, "--tunnel", help="Force the node's SSH tunnel even if it also has a url."
+    ),
 ):
     """
     Sync yuno configs of each registered project (yunos/batches/<host>/) against
@@ -422,11 +562,17 @@ def sync_configs(
         print("[yellow]No projects registered. Use 'yunetas register-project <path>'.[/yellow]")
         raise typer.Exit(code=1)
 
-    forwarded = list(ctx.args)
-    if url:
-        forwarded += ["-u", url]
+    with resolve_node_connection(node, url, tunnel) as conn:
+        forwarded = list(ctx.args)
+        if node:
+            forwarded += conn.args()
+        elif url:
+            forwarded += ["-u", url]
 
-    exit_code, synced = push_configs(selected_projects, host, url, forwarded)
+        # The realm auto-match queries the SAME agent we are about to push to,
+        # so it must go through the tunnel too, not to the local default.
+        exit_code, synced = push_configs(selected_projects, host, conn.url, forwarded)
+
     if synced == 0:
         print("[yellow]Nothing synced: no registered project has a matching batches/<host>/ directory.[/yellow]")
         raise typer.Exit(code=1)
@@ -448,6 +594,12 @@ def sync(
     url: Optional[str] = typer.Option(
         None, "--url", "-u", help="ycommand url (default: ws://127.0.0.1:1991)."
     ),
+    node: Optional[str] = typer.Option(
+        None, "--node", "-N", help="Registered node to deploy to (see 'yunetas list-nodes')."
+    ),
+    tunnel: bool = typer.Option(
+        False, "--tunnel", help="Force the node's SSH tunnel even if it also has a url."
+    ),
 ):
     """
     Push binaries AND configs together against the local agent.
@@ -467,22 +619,29 @@ def sync(
         print("[yellow]No projects registered. Use 'yunetas register-project <path>'.[/yellow]")
         raise typer.Exit(code=1)
 
-    forwarded = list(ctx.args)
-    if url:
-        forwarded += ["-u", url]
+    # One connection for BOTH pushes: with a tunnelled node this also means a
+    # single SSH session, and — more importantly — binaries and configs cannot
+    # end up aimed at different agents.
+    with resolve_node_connection(node, url, tunnel) as conn:
+        forwarded = list(ctx.args)
+        if node:
+            forwarded += conn.args()
+        elif url:
+            forwarded += ["-u", url]
 
-    # 1) Binaries first. If the push fails, do NOT proceed to configs: that
-    #    would leave binaries and configs out of step — the very thing 'sync'
-    #    exists to prevent.
-    print("[cyan]== sync binaries ==[/cyan]")
-    ret = run_agent_tool("sync_binaries.py", forwarded)
-    if ret != 0:
-        print("[red]sync-binaries failed; not syncing configs (would leave binaries and configs out of step).[/red]")
-        raise typer.Exit(code=ret)
+        # 1) Binaries first. If the push fails, do NOT proceed to configs: that
+        #    would leave binaries and configs out of step — the very thing 'sync'
+        #    exists to prevent.
+        print("[cyan]== sync binaries ==[/cyan]")
+        ret = run_agent_tool("sync_binaries.py", forwarded)
+        if ret != 0:
+            print("[red]sync-binaries failed; not syncing configs (would leave binaries and configs out of step).[/red]")
+            raise typer.Exit(code=ret)
 
-    # 2) Then configs.
-    print("[cyan]== sync configs ==[/cyan]")
-    exit_code, synced = push_configs(selected_projects, host, url, forwarded)
+        # 2) Then configs.
+        print("[cyan]== sync configs ==[/cyan]")
+        exit_code, synced = push_configs(selected_projects, host, conn.url, forwarded)
+
     if synced == 0:
         print("[yellow]Binaries synced, but no matching batches/<host>/ directory to sync configs from.[/yellow]")
     raise typer.Exit(code=exit_code)
@@ -501,6 +660,12 @@ def upgrade_yunos(
     ),
     url: Optional[str] = typer.Option(
         None, "--url", "-u", help="ycommand url (default: ws://127.0.0.1:1991)."
+    ),
+    node: Optional[str] = typer.Option(
+        None, "--node", "-N", help="Registered node to promote on (see 'yunetas list-nodes')."
+    ),
+    tunnel: bool = typer.Option(
+        False, "--tunnel", help="Force the node's SSH tunnel even if it also has a url."
     ),
     dry_run: bool = typer.Option(
         False, "--dry-run", "-n", help="Print the agent commands without running them."
@@ -525,6 +690,19 @@ def upgrade_yunos(
     if not ycommand:
         print("[red]Error: ycommand not found in PATH.[/red]")
         raise typer.Exit(code=1)
+
+    if node:
+        # The tunnel has to outlive this block (every step below talks to the
+        # agent), and the body uses `url` in a dozen places. Rather than wrap
+        # ~60 lines in a with-statement, tie the teardown to process exit:
+        # atexit runs on normal return and on the SystemExit that typer.Exit
+        # raises, which is every way this command finishes.
+        conn = resolve_node_connection(node, url, tunnel).__enter__()
+        atexit.register(conn.__exit__, None, None, None)
+        url = conn.url
+        if conn.url.startswith("wss://"):
+            print("[yellow]Note: upgrade-yunos talks to the agent directly and does "
+                  "not forward OAuth2 credentials; use --tunnel for a wss:// node.[/yellow]")
 
     # 1) Rollback snapshot. Never stack a new snap on an already-active one:
     #    if a snap is active (e.g. a prior activate-snap rollback in progress),
@@ -696,6 +874,200 @@ def save_registered_projects(projects):
     except Exception as e:
         print(f"[red]Error: cannot write project registry '{PROJECTS_REGISTRY_PATH}': {e}[/red]")
         raise typer.Exit(code=1)
+
+
+def load_registered_nodes():
+    """
+    Load the node registry (~/.yuneta/nodes.json).
+
+    Returns:
+        list: list of node dicts (empty if no registry).
+    """
+    if not os.path.isfile(NODES_REGISTRY_PATH):
+        return []
+    try:
+        with open(NODES_REGISTRY_PATH, "r") as f:
+            data = json.load(f)
+    except Exception as e:
+        print(f"[red]Error: cannot read node registry '{NODES_REGISTRY_PATH}': {e}[/red]")
+        raise typer.Exit(code=1)
+
+    nodes = data.get("nodes", []) if isinstance(data, dict) else None
+    if not isinstance(nodes, list):
+        print(f"[red]Error: malformed node registry '{NODES_REGISTRY_PATH}'.[/red]")
+        raise typer.Exit(code=1)
+    return nodes
+
+
+def save_registered_nodes(nodes):
+    """
+    Save the node registry (~/.yuneta/nodes.json), owner-readable only.
+    """
+    try:
+        os.makedirs(YUNETA_USER_DIR, exist_ok=True)
+        with open(NODES_REGISTRY_PATH, "w") as f:
+            json.dump({"nodes": nodes}, f, indent=4)
+            f.write("\n")
+        # It carries no secret by design, but it does map out the deploy
+        # surface of this machine. No reason for anyone else to read it.
+        os.chmod(NODES_REGISTRY_PATH, 0o600)
+    except Exception as e:
+        print(f"[red]Error: cannot write node registry '{NODES_REGISTRY_PATH}': {e}[/red]")
+        raise typer.Exit(code=1)
+
+
+def find_registered_node(name):
+    """
+    Resolve a node by registry name, or exit with the list of known ones.
+    """
+    nodes = load_registered_nodes()
+    for n in nodes:
+        if n.get("name") == name:
+            return n
+    known = ", ".join(sorted(n.get("name", "?") for n in nodes)) or "(none)"
+    print(f"[red]Error: node '{name}' is not registered. Registered: {known}[/red]")
+    print("[yellow]Add it with 'yunetas register-node <name> --url ... | --ssh ...'.[/yellow]")
+    raise typer.Exit(code=1)
+
+
+def _free_local_port():
+    """
+    Ask the OS for a free port, then hand it to ssh. There is a race here
+    (the port is released before ssh binds it) but it is the standard trick
+    and the window is microseconds on a machine that is not port-scanning
+    itself.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+class NodeConnection:
+    """
+    Resolve a registered node into the arguments the agent tools need, and
+    own the SSH tunnel when the node is reached that way.
+
+    Two access modes:
+
+      direct  the node's agent is reachable from here (typically wss:// on
+              1993 with OAuth2). `url` is used as-is.
+      tunnel  only the node's LOCAL agent port is open (ws:// on 1991 bound
+              to 127.0.0.1, which is the default and the safer posture). We
+              forward a local port over SSH and talk to that.
+
+    Used as a context manager so the tunnel dies with the command, including
+    on failure — a leaked `ssh -N` would silently keep a port open.
+    """
+
+    def __init__(self, node, force_tunnel=False):
+        self.node = node
+        self.force_tunnel = force_tunnel
+        self.proc = None
+        self.url = None
+
+    def __enter__(self):
+        node = self.node
+        url = node.get("url")
+        ssh_target = node.get("ssh")
+
+        use_tunnel = bool(ssh_target) and (self.force_tunnel or not url)
+        if use_tunnel:
+            remote_port = int(node.get("agent_port", 1991))
+            local_port = _free_local_port()
+            print(f"[cyan]Tunnelling {ssh_target}:{remote_port} -> 127.0.0.1:{local_port}[/cyan]")
+            self.proc = subprocess.Popen(
+                [
+                    "ssh", "-N",
+                    "-o", "ConnectTimeout=20",
+                    "-o", "ExitOnForwardFailure=yes",
+                    "-L", f"{local_port}:127.0.0.1:{remote_port}",
+                    ssh_target,
+                ]
+            )
+            if not self._wait_for_port(local_port):
+                self.__exit__(None, None, None)
+                print(f"[red]Error: SSH tunnel to '{ssh_target}' did not come up.[/red]")
+                raise typer.Exit(code=1)
+            self.url = f"ws://127.0.0.1:{local_port}"
+        elif url:
+            self.url = url
+        else:
+            print(f"[red]Error: node '{node.get('name')}' has neither 'url' nor 'ssh'.[/red]")
+            raise typer.Exit(code=1)
+
+        return self
+
+    def _wait_for_port(self, port, timeout=20.0):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if self.proc is not None and self.proc.poll() is not None:
+                return False    # ssh died (bad host, auth, port in use)
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(0.5)
+                if s.connect_ex(("127.0.0.1", port)) == 0:
+                    return True
+            time.sleep(0.2)
+        return False
+
+    def args(self):
+        """
+        The flags to forward to sync_binaries.py / sync_configs.py.
+
+        Credentials are read from the environment, never from the registry.
+        Only the OAuth2 identity (issuer/client/user) is stored.
+        """
+        out = ["-u", self.url]
+
+        # A tunnelled ws:// agent needs no OAuth2: the SSH session already
+        # authenticated us, and the agent trusts its own loopback.
+        if self.url.startswith("wss://"):
+            node = self.node
+            for flag, key in (("-I", "issuer"), ("-Z", "client_id"), ("-x", "user_id")):
+                value = node.get(key)
+                if value:
+                    out += [flag, value]
+
+            jwt = os.environ.get(ENV_OAUTH_JWT)
+            if jwt:
+                out += ["-j", jwt]
+            else:
+                passw = os.environ.get(ENV_OAUTH_PASSW)
+                if passw:
+                    out += ["-X", passw]
+                secret = os.environ.get(ENV_OAUTH_CLIENT_SECRET)
+                if secret:
+                    out += ["--client-secret", secret]
+
+        return out
+
+    def __exit__(self, exc_type, exc, tb):
+        if self.proc is not None:
+            self.proc.terminate()
+            try:
+                self.proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+            self.proc = None
+        return False
+
+
+def resolve_node_connection(node_name, url, force_tunnel=False):
+    """
+    Turn the --node/--url pair into a context manager yielding the connection.
+
+    --url alone keeps working exactly as before (no registry involved), so
+    nothing that scripts the old flags breaks.
+    """
+    if node_name and url:
+        print("[red]Error: use --node or --url, not both.[/red]")
+        raise typer.Exit(code=1)
+
+    if node_name:
+        return NodeConnection(find_registered_node(node_name), force_tunnel)
+
+    # No node: behave as before. A bare url (or the tool's own default) with
+    # no tunnel to manage.
+    return NodeConnection({"name": "(none)", "url": url or "ws://127.0.0.1:1991"})
 
 
 def project_yunos_dir(project):

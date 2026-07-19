@@ -1,5 +1,38 @@
 # **Changelog**
 
+## 0.15.0 -- 19-Jul-2026
+A node registry, so a remote deploy is `--node <name>`.
+
+- **`register-node` / `list-nodes` / `unregister-node`**, backed by
+  `~/.yuneta/nodes.json` (0600), mirroring the existing project registry.
+  `--node/-N` on `sync`, `sync-binaries`, `sync-configs` and `upgrade-yunos`
+  resolves the node's url and OAuth2 identity.
+
+  This is the piece the central-deploy model was missing. Everything else
+  already worked: the agent tools have accepted `-u wss://` with full OAuth2
+  for a while. What did not exist was anywhere to *remember* it, so every
+  deploy meant re-deriving the url, the issuer and the client from a config
+  file somewhere and retyping four flags.
+
+- **No credential is ever stored.** The registry holds where a node is and
+  which identity we present — url, ssh target, issuer, client_id, user_id —
+  and nothing you would mind reading out loud. Passwords, client secrets and
+  JWTs come from `$YUNETA_OAUTH_PASSW`, `$YUNETA_OAUTH_CLIENT_SECRET` and
+  `$YUNETA_OAUTH_JWT` at call time. A file whose whole purpose is to be listed
+  is the wrong place for a secret.
+
+- **Tunnel mode.** A node registered with `--ssh user@host` instead of `--url`
+  is reached by forwarding a local port to its agent (1991 by default, which
+  is bound to loopback and should stay that way). The tunnel is opened on a
+  free port, used for the whole command, and torn down afterwards — including
+  on failure, so a leaked `ssh -N` cannot keep a port open. With both `--url`
+  and `--ssh` registered, the url wins unless `--tunnel` is given.
+
+- **`sync` uses ONE connection for both pushes**, so binaries and configs can
+  never end up aimed at different agents. Relatedly, `sync-configs` now runs
+  its realm auto-match against the agent it is about to push to; it was
+  querying the local one.
+
 ## 0.14.0 -- 19-Jul-2026
 `init` no longer reports success when cmake failed.
 
