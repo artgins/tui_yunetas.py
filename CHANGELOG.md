@@ -1,5 +1,19 @@
 # **Changelog**
 
+## 0.18.0 -- 20-Jul-2026
+- **`yunetas --help` is now an extended help.** It printed the identical
+  one-line-per-command summary that bare `yunetas` already shows, which made
+  the flag pointless — you had just seen it. It now documents every command:
+  its full description and every option, grouped by the job it belongs to
+  (Build / Projects / Deploy targets / Deploy / Secrets / Misc).
+
+  Bare `yunetas` keeps the compact listing, and `yunetas <command> --help`
+  keeps click's own rendering; only the top-level flag changed.
+
+  The listing is built from the commands actually registered, so one missing
+  from the grouping map still appears under "Other" instead of silently
+  vanishing from the help.
+
 ## 0.17.1 -- 20-Jul-2026
 - **Fix the dependency declaration.** `typer[all]` was the old way to pull in
   rich/shellingham; typer stopped providing that extra (0.12 folded them into

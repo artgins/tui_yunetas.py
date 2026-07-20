@@ -12,6 +12,7 @@ import socket
 import sys
 import subprocess
 import shutil
+import textwrap
 import time
 import atexit
 from datetime import datetime
@@ -911,8 +912,113 @@ def app_main(
         raise typer.Exit(code=1)
 
 
+#--------------------------------------------------#
+#   Extended help
+#
+#   Bare `yunetas` lists the commands; `yunetas --help` explains them. The two
+#   used to print the identical one-line-per-command summary, which made the
+#   flag pointless -- you had already seen it.
+#
+#   Commands are grouped by the job they belong to. A command missing from the
+#   map still shows, under "Other": the listing is built from what is actually
+#   registered, so a new command can never silently vanish from the help.
+#--------------------------------------------------#
+EXTENDED_HELP_GROUPS = [
+    ("Build", ["init", "build", "clean", "test"]),
+    ("Projects", ["register-project", "unregister-project", "list-projects"]),
+    ("Deploy targets", ["register-node", "unregister-node", "list-nodes"]),
+    ("Deploy", ["sync", "sync-binaries", "sync-configs", "upgrade-yunos"]),
+    ("Secrets", ["list-secrets"]),
+    ("Misc", ["venv", "version"]),
+]
+
+
+def _command_help_text(cmd):
+    """
+    The command's own description: full docstring when it has one, else the
+    short help click derived for the compact listing.
+    """
+    text = (cmd.help or cmd.short_help or "").strip()
+    return text or "(no description)"
+
+
+def _wrapped(text, width, indent, hanging=None):
+    """
+    Pre-wrap to the console width instead of letting rich do it: rich restarts
+    a wrapped line at column 0, which throws away the indentation that shows
+    what belongs to which command.
+    """
+    if not text:
+        return []
+    pad = " " * indent
+    return textwrap.wrap(
+        text,
+        width=max(20, width),
+        initial_indent=pad,
+        subsequent_indent=" " * (hanging if hanging is not None else indent),
+    ) or [pad + text]
+
+
+def _print_extended_help(group_cmd, ctx):
+    console = Console()
+    width = min(console.width, 100)
+    console.print(f"\n[bold]Usage:[/bold] {ctx.info_name} [OPTIONS] COMMAND [ARGS]...")
+    console.print("\nTUI for the yunetas SDK: build, deploy and manage yunos.\n")
+
+    grouped = {name: cmds for name, cmds in EXTENDED_HELP_GROUPS}
+    placed = {c for cmds in grouped.values() for c in cmds}
+    leftovers = sorted(set(group_cmd.commands) - placed)
+    sections = list(EXTENDED_HELP_GROUPS) + ([("Other", leftovers)] if leftovers else [])
+
+    for title, names in sections:
+        visible = [n for n in names if n in group_cmd.commands]
+        if not visible:
+            continue
+        console.print(f"[bold cyan]── {title} " + "─" * max(0, 60 - len(title)))
+        for name in visible:
+            cmd = group_cmd.commands[name]
+            console.print(f"  [bold green]{name}[/bold green]")
+            for paragraph in _command_help_text(cmd).split("\n\n"):
+                text = " ".join(paragraph.split())
+                for line in _wrapped(text, width - 6, 6):
+                    console.print(f"[dim]{line}[/dim]", highlight=False)
+
+            rows = []
+            for param in cmd.params:
+                flags = ", ".join(param.opts) if param.opts else param.name
+                rows.append((flags, " ".join((getattr(param, "help", None) or "").split())))
+            if rows:
+                col = max(len(f) for f, _ in rows)
+                for flags, help_text in rows:
+                    head = f"      {flags:<{col}}  "
+                    lines = _wrapped(help_text, width - len(head), 0,
+                                     hanging=0) or [""]
+                    console.print(f"[yellow]{head}[/yellow]{lines[0].strip()}",
+                                  highlight=False)
+                    for extra in lines[1:]:
+                        console.print(" " * len(head) + extra.strip(), highlight=False)
+            console.print()
+
+    console.print("[dim]Run '%s COMMAND --help' for a single command.[/dim]\n"
+                  % ctx.info_name)
+
+
 def run():
-    app()
+    command = typer.main.get_command(app)
+    default_format_help = command.format_help
+
+    def format_help(ctx, formatter):
+        # Only reached for the TOP-LEVEL command, so `yunetas sync --help`
+        # keeps click's own rendering. Bare `yunetas` reaches this through the
+        # callback's get_help() on a *different* command object, so it still
+        # gets the compact listing -- which is the distinction we want.
+        if "--help" in sys.argv[1:] or "-h" in sys.argv[1:]:
+            _print_extended_help(command, ctx)
+            return
+        default_format_help(ctx, formatter)
+
+    command.format_help = format_help
+    command()
 
 
 #--------------------------------------------------#
