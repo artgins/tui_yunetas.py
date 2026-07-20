@@ -1,5 +1,14 @@
 # **Changelog**
 
+## 0.17.1 -- 20-Jul-2026
+- **Fix the dependency declaration.** `typer[all]` was the old way to pull in
+  rich/shellingham; typer stopped providing that extra (0.12 folded them into
+  the base package), so every install printed
+  `typer 0.27.0 does not provide the extra 'all'` and carried on. Now
+  `typer>=0.12.0`, plus an explicit `rich` — `main.py` imports rich directly,
+  and a dependency you import is yours to declare rather than inherit from
+  another package's packaging choices.
+
 ## 0.17.0 -- 20-Jul-2026
 The agent tools move INTO this package.
 

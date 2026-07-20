@@ -13,7 +13,15 @@ authors = [
     {name = "rmm", email = "rosa.martinez@artgins.com"},
 ]
 dependencies = [
-    "typer[all]>=0.9.0",
+    # `typer[all]` was the old way to pull in rich/shellingham. Typer stopped
+    # providing that extra (0.12 folded them into the base package and moved
+    # the minimal build to `typer-slim`), so every install printed
+    # "typer 0.27.0 does not provide the extra 'all'" and carried on.
+    "typer>=0.12.0",
+    # Declared even though modern typer happens to install it: main.py imports
+    # rich directly, and a dependency you import is yours to declare, not
+    # something to inherit from another package's packaging decisions.
+    "rich>=13.0.0",
 ]
 requires-python = ">=3.7"
 readme = "README.md"
