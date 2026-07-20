@@ -1,5 +1,36 @@
 # **Changelog**
 
+## 0.17.0 -- 20-Jul-2026
+The agent tools move INTO this package.
+
+- **`sync_binaries.py`, `sync_configs.py` and `set_start_priorities.py` now
+  ship here**, as `yunetas.agent_tools.*`, instead of being read from
+  `$YUNETAS_BASE/tools/agent/` at run time.
+
+  They were one tool released through two channels: the CLI on PyPI in
+  seconds, the scripts inside the .deb/.rpm behind a full SDK release. The
+  halves drifted. A live example: a node running CLI 0.14.0 against scripts
+  from SDK 7.8.4 — `pipx install --upgrade yunetas` there would have handed
+  `--secrets-dir` (CLI 0.16.0) to a script that had never heard of it, and the
+  deploy would die with "unrecognized arguments" without anyone touching the
+  SDK. That whole class of failure is gone: one version, one release.
+
+  It also unblocks fixes. The empty-overlay rejection sat finished but
+  undeliverable, waiting on an SDK release, because it lived in `tools/`.
+
+- **Still launched as a subprocess**, not imported: the tools own their exit
+  codes and install their own signal handlers (`sync_configs` wipes its
+  plaintext workdir on SIGINT/SIGTERM), and importing them would put both
+  under typer's control.
+
+- `$YUNETAS_BASE/tools/agent/*.py` remain for a release or two as forwarding
+  shims that print a deprecation notice, because operator runbooks reference
+  those paths.
+
+- Note the CLI still shells out to **`ycommand`**, a C binary from the SDK. So
+  this does not yet make `pipx install yunetas` self-sufficient on a bare
+  machine; it removes the version skew, not that dependency.
+
 ## 0.16.0 -- 19-Jul-2026
 Secret overlays, so credentials stop living in project repos.
 

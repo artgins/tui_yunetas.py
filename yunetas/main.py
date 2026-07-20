@@ -1239,19 +1239,30 @@ def resolve_selection(project_names, sdk_only):
 
 def run_agent_tool(script_name, args, cwd=None):
     """
-    Run a tool from $YUNETAS_BASE/tools/agent/ forwarding arguments.
+    Run one of the bundled agent tools, forwarding arguments.
+
+    They ship inside this package (``yunetas.agent_tools``) rather than being
+    read from ``$YUNETAS_BASE/tools/agent/``, so the CLI and the tools it
+    drives are always the same version. When they were released separately, a
+    ``pipx install --upgrade yunetas`` could hand a new flag to a script from
+    an older SDK and die with "unrecognized arguments".
+
+    Still a subprocess, not an import: the tools own their exit codes and
+    install their own signal handlers (sync_configs wipes its plaintext
+    workdir on SIGINT/SIGTERM), and running them in-process would put both
+    under typer's control.
 
     Returns:
         int: the tool's exit code.
     """
-    script = os.path.join(YUNETAS_BASE, "tools", "agent", script_name)
-    if not os.path.isfile(script):
-        print(f"[red]Error: '{script}' not found.[/red]")
-        raise typer.Exit(code=1)
+    module = "yunetas.agent_tools.%s" % script_name[:-len(".py")] \
+        if script_name.endswith(".py") else "yunetas.agent_tools.%s" % script_name
 
     env = os.environ.copy()
     env.setdefault("YUNETAS_BASE", YUNETAS_BASE)
-    result = subprocess.run([sys.executable, script] + list(args), cwd=cwd, env=env)
+    result = subprocess.run(
+        [sys.executable, "-m", module] + list(args), cwd=cwd, env=env
+    )
     return result.returncode
 
 
