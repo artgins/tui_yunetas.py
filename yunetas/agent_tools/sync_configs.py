@@ -321,14 +321,35 @@ def obtain_jwt(args):
     return jwt
 
 
+#   TLS flags for a wss:// agent, set once in main() and used by every call.
+#   The agent serves one long-life certificate of its own on every node, so
+#   the name never matches the host dialed: --ssl-server-name says which name
+#   to check the certificate against, and the chain is still validated.
+TLS_FLAGS = []
+
+
 def ycmd_base(ycommand, url, jwt):
-    """Base ycommand argv: binary + optional -u url + optional -j jwt."""
+    """Base ycommand argv: binary + optional -u url + optional -j jwt + TLS."""
     cmd = [ycommand]
     if url:
         cmd += ["-u", url]
     if jwt:
         cmd += ["-j", jwt]
+    cmd += TLS_FLAGS
     return cmd
+
+
+def set_tls_flags(args):
+    """Record the TLS flags of the run, from the parsed arguments."""
+    global TLS_FLAGS
+    flags = []
+    trusted = getattr(args, "ssl_trusted_certificate", None)
+    if trusted:
+        flags += ["--ssl-trusted-certificate", trusted]
+    server_name = getattr(args, "ssl_server_name", None)
+    if server_name:
+        flags += ["--ssl-server-name", server_name]
+    TLS_FLAGS = flags
 
 
 # ----------------------------------------------------------------------------
@@ -891,7 +912,15 @@ def main():
     auth.add_argument("-X", "--user-passw", default=None, help="OAuth2 password.")
     auth.add_argument("-j", "--jwt", default=None,
                       help="reuse this jwt directly (skip the login).")
+
+    tls = ap.add_argument_group("TLS (wss:// agent)")
+    tls.add_argument("--ssl-trusted-certificate", default=None,
+                     help="PEM of the CA that signs the agent certificate.")
+    tls.add_argument("--ssl-server-name", default=None,
+                     help="name to check the agent certificate against "
+                          "(default: the host of the url).")
     args = ap.parse_args()
+    set_tls_flags(args)
 
     ycommand = args.ycommand or shutil.which("ycommand")
     if not ycommand:

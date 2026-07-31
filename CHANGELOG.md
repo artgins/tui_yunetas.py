@@ -1,5 +1,21 @@
 # **Changelog**
 
+## 0.19.0 -- 31-Jul-2026
+- **A node can be reached over `wss://` with the agent's own certificate.**
+  `register-node` takes `--ssl-trusted-certificate` and `--ssl-server-name`
+  and stores them with the node, and the three agent tools (`sync-binaries`,
+  `sync-configs`, `set-start-priorities`) forward them to every `ycommand`
+  call.
+
+  Without this, a node whose agent listens on 1993 could only be reached
+  through an SSH tunnel. The agent serves one long-life certificate of its
+  own on every node (`CN=yuneta_agent.yuneta.io`), so the name never matches
+  the host dialed: the chain validates against the pinned PEM, and
+  `--ssl-server-name` says which name to check it against. Nothing is
+  weakened — the certificate is still verified.
+
+  Needs ycommand 7.9.6 or later, which is where `--ssl-server-name` lives.
+
 ## 0.18.0 -- 20-Jul-2026
 - **`yunetas --help` is now an extended help.** It printed the identical
   one-line-per-command summary that bare `yunetas` already shows, which made

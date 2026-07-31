@@ -415,6 +415,16 @@ def register_node(
     user_id: Optional[str] = typer.Option(
         None, "--user-id", "-x", help="OAuth2 username (wss:// nodes only)."
     ),
+    ssl_trusted_certificate: Optional[str] = typer.Option(
+        None, "--ssl-trusted-certificate",
+        help="PEM of the CA that signs the agent certificate (wss:// nodes only)."
+    ),
+    ssl_server_name: Optional[str] = typer.Option(
+        None, "--ssl-server-name",
+        help="Name to check the agent certificate against (wss:// nodes only). "
+             "The agent serves one certificate of its own on every node, so this "
+             "is normally its CN, not the host dialed."
+    ),
 ):
     """
     Register a node so deploys can say '--node <name>' instead of repeating a
@@ -446,6 +456,8 @@ def register_node(
         ("issuer", issuer),
         ("client_id", client_id),
         ("user_id", user_id),
+        ("ssl_trusted_certificate", ssl_trusted_certificate),
+        ("ssl_server_name", ssl_server_name),
     ):
         if value:
             node[key] = value
@@ -1207,7 +1219,13 @@ class NodeConnection:
         # authenticated us, and the agent trusts its own loopback.
         if self.url.startswith("wss://"):
             node = self.node
-            for flag, key in (("-I", "issuer"), ("-Z", "client_id"), ("-x", "user_id")):
+            for flag, key in (
+                ("-I", "issuer"),
+                ("-Z", "client_id"),
+                ("-x", "user_id"),
+                ("--ssl-trusted-certificate", "ssl_trusted_certificate"),
+                ("--ssl-server-name", "ssl_server_name"),
+            ):
                 value = node.get(key)
                 if value:
                     out += [flag, value]
