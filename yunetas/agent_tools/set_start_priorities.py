@@ -218,7 +218,7 @@ def agent_yunos(ycommand, url, jwt):
     """Return the list of yuno records via '*list-yunos' (raw JSON)."""
     cmd = ycmd_base(ycommand, url, jwt) + ["-c", "*list-yunos"]
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        res = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=30)
         data = parse_leading_json(res.stdout)
     except (OSError, subprocess.SubprocessError) as e:
         print(red("ERROR: cannot run ycommand: %s" % e))
@@ -245,7 +245,7 @@ def set_start_priority(ycommand, url, jwt, yid, prio, dry_run):
         return True
     cmd = ycmd_base(ycommand, url, jwt) + ["-c", cmd_str]
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        res = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=60)
     except (OSError, subprocess.SubprocessError) as e:
         print(red("   ERROR: %s" % e))
         return False

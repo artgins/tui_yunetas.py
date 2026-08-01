@@ -595,6 +595,7 @@ def sync_binaries(
     argument is forwarded (e.g. -n dry-run, -a all, --no-restart).
     """
     with resolve_node_connection(node, None, tunnel) as conn:
+        set_agent_flags(conn)
         extra = conn.args() if node else []
         ret = run_agent_tool("sync_binaries.py", list(ctx.args) + extra)
     if ret == 0 and not ({"-n", "--dry-run"} & set(ctx.args)):
@@ -646,6 +647,7 @@ def sync_configs(
         raise typer.Exit(code=1)
 
     with resolve_node_connection(node, url, tunnel) as conn:
+        set_agent_flags(conn)
         forwarded = list(ctx.args)
         if node:
             forwarded += conn.args()
@@ -709,6 +711,7 @@ def sync(
     # single SSH session, and — more importantly — binaries and configs cannot
     # end up aimed at different agents.
     with resolve_node_connection(node, url, tunnel) as conn:
+        set_agent_flags(conn)
         forwarded = list(ctx.args)
         if node:
             forwarded += conn.args()
@@ -791,10 +794,8 @@ def upgrade_yunos(
         # raises, which is every way this command finishes.
         conn = resolve_node_connection(node, url, tunnel).__enter__()
         atexit.register(conn.__exit__, None, None, None)
+        set_agent_flags(conn)
         url = conn.url
-        if conn.url.startswith("wss://"):
-            print("[yellow]Note: upgrade-yunos talks to the agent directly and does "
-                  "not forward OAuth2 credentials; use --tunnel for a wss:// node.[/yellow]")
 
     # 1) Rollback snapshot. Never stack a new snap on an already-active one:
     #    if a snap is active (e.g. a prior activate-snap rollback in progress),
@@ -1254,6 +1255,26 @@ class NodeConnection:
         return False
 
 
+#   Flags of the node in play: url plus the OAuth2 identity and the TLS of
+#   its agent. Every ycommand call of this CLI has to carry them, or a wss://
+#   node answers nothing and ycommand retries for ever -- with the terminal's
+#   stdin, which drops the operator inside an interactive session.
+AGENT_FLAGS = []
+
+
+def set_agent_flags(conn):
+    """Record the flags of a resolved node connection."""
+    global AGENT_FLAGS
+    AGENT_FLAGS = list(conn.args()) if conn is not None else []
+
+
+def ycmd_conn_flags(url):
+    """Connection flags for one ycommand call: the node's, or a bare url."""
+    if AGENT_FLAGS:
+        return list(AGENT_FLAGS)
+    return ["-u", url] if url else []
+
+
 def resolve_node_connection(node_name, url, force_tunnel=False):
     """
     Turn the --node/--url pair into a context manager yielding the connection.
@@ -1487,16 +1508,14 @@ def run_ycommand(ycommand, url, cmd_str, dry_run=False, timeout=300, echo_output
     printed — used when the caller renders its own concise summary instead
     of dumping ycommand's verbose table (e.g. find-new-yunos).
     """
-    cmd = [ycommand]
-    if url:
-        cmd += ["-u", url]
+    cmd = [ycommand] + ycmd_conn_flags(url)
     cmd += ["-c", cmd_str]
     print(f"[cyan]>> ycommand -c '{cmd_str}'[/cyan]")
     if dry_run:
         print("   [dim](dry-run, not executed)[/dim]")
         return True, ""
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        res = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=timeout)
     except (OSError, subprocess.SubprocessError) as e:
         print(f"[red]   ERROR: {e}[/red]")
         return False, ""
@@ -1520,12 +1539,10 @@ def local_realm_ids(url=None):
     ycommand = ycommand_path()
     if not ycommand:
         return None
-    cmd = [ycommand]
-    if url:
-        cmd += ["-u", url]
+    cmd = [ycommand] + ycmd_conn_flags(url)
     cmd += ["-c", "*list-realms"]
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        res = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=30)
     except (OSError, subprocess.SubprocessError):
         return None
     try:
@@ -1547,12 +1564,10 @@ def snap_exists(ycommand, url, name):
     snap list can't be read. The 'snaps' command renders a table whose Name
     column holds the name quoted, so an exact quoted match is unambiguous.
     """
-    cmd = [ycommand]
-    if url:
-        cmd += ["-u", url]
+    cmd = [ycommand] + ycmd_conn_flags(url)
     cmd += ["-c", "snaps"]
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        res = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=30)
     except (OSError, subprocess.SubprocessError):
         return None
     if res.returncode != 0:
@@ -1569,12 +1584,10 @@ def active_snap_name(ycommand, url):
     ycommand emit raw JSON); the agent keeps at most one snap active (treedb
     activates a single tag), so the first record flagged active wins.
     """
-    cmd = [ycommand]
-    if url:
-        cmd += ["-u", url]
+    cmd = [ycommand] + ycmd_conn_flags(url)
     cmd += ["-c", "*snaps"]
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        res = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=30)
     except (OSError, subprocess.SubprocessError):
         return None
     if res.returncode != 0:

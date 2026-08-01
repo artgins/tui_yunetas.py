@@ -1,5 +1,25 @@
 # **Changelog**
 
+## 0.19.1 -- 01-Aug-2026
+- **Every `ycommand` call carries the node's identity.** Four calls inside the
+  CLI were built with the url alone — no OAuth2 flags, no TLS — while the
+  deploy tools already forwarded both. Against a `wss://` node that never
+  connects, so `sync-configs` could not read the realms of the agent
+  (`*list-realms`) and fell back to a hostname guess that landed on the wrong
+  project, and `upgrade-yunos` never returned.
+
+  They now go through `ycmd_conn_flags()`, filled by `set_agent_flags()` at
+  each of the four places where a node connection is resolved.
+
+- **A hung `ycommand` can no longer take the terminal.** These calls inherited
+  stdin, so a rejected handshake left `ycommand` alive and retrying while it
+  read the operator's keystrokes: the session looked frozen and the typing
+  went into an interactive prompt nobody asked for. All 17 subprocess calls of
+  the CLI and of the three agent tools close stdin.
+
+- Dropped the note of `upgrade-yunos` about not forwarding OAuth2 credentials.
+  It does now.
+
 ## 0.19.0 -- 31-Jul-2026
 - **A node can be reached over `wss://` with the agent's own certificate.**
   `register-node` takes `--ssl-trusted-certificate` and `--ssl-server-name`

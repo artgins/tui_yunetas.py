@@ -581,7 +581,7 @@ def agent_configs(ycommand, url, jwt):
     """
     cmd = ycmd_base(ycommand, url, jwt) + ["-c", "*list-configs"]
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        res = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=30)
     except (OSError, subprocess.SubprocessError) as e:
         print(red("ERROR: cannot run ycommand: %s" % e))
         sys.exit(2)
@@ -623,7 +623,7 @@ def agent_config_instances(ycommand, url, jwt):
     """
     cmd = ycmd_base(ycommand, url, jwt) + ["-c", "*list-configs-instances"]
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        res = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=30)
         data = parse_leading_json(res.stdout)
     except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
         return {}
@@ -756,7 +756,7 @@ def run_one(ycommand, url, jwt, action, cid, path, dry_run):
         print(dim("   (dry-run, not executed)"))
         return True
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        res = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=120)
     except (OSError, subprocess.SubprocessError) as e:
         print(red("   ERROR: %s" % e))
         return False
@@ -786,7 +786,7 @@ def run_ycmd(ycommand, url, jwt, cmd_str, dry_run, timeout=120):
         print(dim("   (dry-run, not executed)"))
         return True, ""
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        res = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=timeout)
     except (OSError, subprocess.SubprocessError) as e:
         print(red("   ERROR: %s" % e))
         return False, ""
@@ -813,7 +813,7 @@ def yuno_states_by_id(ycommand, url, jwt):
     """
     cmd = ycmd_base(ycommand, url, jwt) + ["-c", "*list-yunos"]
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        res = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=30)
         data = parse_leading_json(res.stdout)
     except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
         return {}
@@ -835,7 +835,7 @@ def wait_until_stopped(ycommand, url, jwt, yid, timeout_s=15.0, poll_s=0.3):
     while time.monotonic() < deadline:
         cmd = ycmd_base(ycommand, url, jwt) + ["-c", "*list-yunos id=%s" % yid]
         try:
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            res = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=30)
             data = parse_leading_json(res.stdout)
         except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
             data = []

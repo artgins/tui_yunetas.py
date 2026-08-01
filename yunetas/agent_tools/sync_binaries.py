@@ -404,7 +404,7 @@ def agent_binaries(ycommand, url, jwt):
     """
     cmd = ycmd_base(ycommand, url, jwt) + ["-c", "*list-binaries"]
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        res = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=30)
     except (OSError, subprocess.SubprocessError) as e:
         print(red("ERROR: cannot run ycommand: %s" % e))
         sys.exit(2)
@@ -448,7 +448,7 @@ def agent_binary_instances(ycommand, url, jwt):
     """
     cmd = ycmd_base(ycommand, url, jwt) + ["-c", "*list-binaries-instances"]
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        res = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=30)
         data = parse_leading_json(res.stdout)
     except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
         return {}
@@ -617,7 +617,7 @@ def run_ycmd(ycommand, url, jwt, cmd_str, dry_run, timeout=120):
         print(dim("   (dry-run, not executed)"))
         return True, ""
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        res = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=timeout)
     except (OSError, subprocess.SubprocessError) as e:
         print(red("   ERROR: %s" % e))
         return False, ""
@@ -650,7 +650,7 @@ def yuno_states(ycommand, url, jwt, role):
     """
     cmd = ycmd_base(ycommand, url, jwt) + ["-c", "*list-yunos yuno_role=%s" % role]
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        res = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=30)
         data = parse_leading_json(res.stdout)
     except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
         return []
@@ -669,7 +669,7 @@ def agent_start_priorities(ycommand, url, jwt):
     """
     cmd = ycmd_base(ycommand, url, jwt) + ["-c", "*list-yunos"]
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        res = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=30)
         data = parse_leading_json(res.stdout)
     except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
         return {}
