@@ -179,16 +179,19 @@ def cmp_versions(a, b):
 def parse_build_date(s):
     """
     Parse the build datetime embedded in a binary and reported identically by
-    '--print-role' and '*list-binaries' as the `date` field ('Mmm D YYYY
-    HH:MM:SS' — the C `__DATE__ " " __TIME__`). __DATE__ space-pads a single
-    digit day ('Jun  5 2026'), so collapse runs of whitespace before parsing.
-    Returns a datetime, or None when absent/malformed so the caller falls back
-    to the size-only compare.
+    '--print-role' and '*list-binaries' as the `date` field. Since SDK 7.23.x
+    it is ISO 8601 UTC ('2026-09-18T16:13:49Z': compiled under TZ=UTC and
+    normalised by entry_point.c). Older binaries report the raw C
+    `__DATE__ " " __TIME__` ('Mmm D YYYY HH:MM:SS', the build host's local
+    time, no zone); __DATE__ space-pads a single digit day ('Jun  5 2026'), so
+    collapse runs of whitespace before parsing. Returns a naive datetime, or
+    None when absent/malformed so the caller falls back to the size-only
+    compare.
     """
     if not s or s == "?":
         return None
     norm = re.sub(r"\s+", " ", str(s)).strip()
-    for fmt in ("%b %d %Y %H:%M:%S", "%b %d %Y"):
+    for fmt in ("%Y-%m-%dT%H:%M:%SZ", "%b %d %Y %H:%M:%S", "%b %d %Y"):
         try:
             return datetime.strptime(norm, fmt)
         except ValueError:

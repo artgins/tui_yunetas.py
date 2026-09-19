@@ -1,5 +1,13 @@
 # **Changelog**
 
+## 0.19.3 -- 19-Sep-2026
+- **`sync-binaries` reads the build date in its new form.** Since SDK 7.23.x
+  a binary reports its `date` as ISO 8601 UTC (`2026-09-18T16:13:49Z`). It
+  used to be the raw C `__DATE__ " " __TIME__`, in the build host's local
+  time and with no zone. `parse_build_date()` reads both. The date is only
+  the fallback compare, used when the agent reports no file `time`. While
+  old and new binaries coexist, the size decides.
+
 ## 0.19.2 -- 19-Sep-2026
 - **`upgrade-yunos` no longer shoots a snap when there is nothing to
   upgrade.** The rollback snap was the FIRST step, before the
