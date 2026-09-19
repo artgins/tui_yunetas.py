@@ -772,13 +772,14 @@ def upgrade_yunos(
     Run this after 'sync-binaries' / 'sync-configs' have pushed the new
     artifacts. The flow is:
 
-      1. Rollback snapshot (idempotent by name): shoot-snap only if no snap
+      1. find-new-yunos (preview): list the create-yuno rows that would be
+         registered. With none, stop here: nothing is shot, nothing restarts.
+      2. Ask for confirmation (skip the prompt with --yes).
+      3. Rollback snapshot (idempotent by name): shoot-snap only if no snap
          named like the default 'pre-upgrade-<YYYYMMDD>' (or --snap-name)
          already exists. Skipped with --no-snap.
-      2. find-new-yunos (preview): list the create-yuno rows that would be
-         registered, then ask for confirmation (skip the prompt with --yes).
-      3. find-new-yunos create=1: register the new yuno-instance rows.
-      4. deactivate-snap: triggers restart_nodes() on the agent (SIGKILL +
+      4. find-new-yunos create=1: register the new yuno-instance rows.
+      5. deactivate-snap: triggers restart_nodes() on the agent (SIGKILL +
          treedb reload), promoting the newest release of every yuno.
     """
     ycommand = ycommand_path()
@@ -797,10 +798,37 @@ def upgrade_yunos(
         set_agent_flags(conn)
         url = conn.url
 
-    # 1) Rollback snapshot. Never stack a new snap on an already-active one:
-    #    if a snap is active (e.g. a prior activate-snap rollback in progress),
-    #    reuse it as the rollback point instead of shooting another. Otherwise
-    #    fall back to the by-name idempotency check.
+    # 1) find-new-yunos preview. Suppress the raw JSON echo; we render our
+    #    own formatted list from the parsed preview below. It goes FIRST: with
+    #    nothing new to register there is nothing to roll back to, so no snap
+    #    is shot -- a snap shot for nothing tags every current record (and
+    #    clones the ones another snap already tagged) for no reason.
+    ok, out = run_ycommand(ycommand, url, "find-new-yunos", dry_run, echo_output=False)
+    if not ok and not dry_run:
+        print("[red]Error: find-new-yunos failed.[/red]")
+        raise typer.Exit(code=1)
+    if not dry_run:
+        try:
+            preview = _parse_leading_json(out)
+        except (ValueError, json.JSONDecodeError):
+            preview = []
+        if not isinstance(preview, list) or not preview:
+            print("[green]No new yunos to activate. Nothing to do.[/green]")
+            raise typer.Exit(code=0)
+        print(f"[cyan]{len(preview)} new yuno row(s) would be created:[/cyan]")
+        for line in preview:
+            print(f"  {line}")
+
+        # 2) Confirm.
+        if not yes and not typer.confirm("Create these new yuno rows?", default=False):
+            print("[yellow]Aborted: no snap shot, no rows created, no restart.[/yellow]")
+            raise typer.Exit(code=1)
+
+    # 3) Rollback snapshot, only now that there IS something to roll back.
+    #    Never stack a new snap on an already-active one: if a snap is active
+    #    (e.g. a prior activate-snap rollback in progress), reuse it as the
+    #    rollback point instead of shooting another. Otherwise fall back to the
+    #    by-name idempotency check.
     if not no_snap:
         active = active_snap_name(ycommand, url)
         if active:
@@ -821,29 +849,7 @@ def upgrade_yunos(
                     print("[red]Error: shoot-snap failed; aborting before any change.[/red]")
                     raise typer.Exit(code=1)
 
-    # 2) find-new-yunos preview. Suppress the raw JSON echo; we render our
-    #    own formatted list from the parsed preview below.
-    ok, out = run_ycommand(ycommand, url, "find-new-yunos", dry_run, echo_output=False)
-    if not ok and not dry_run:
-        print("[red]Error: find-new-yunos failed.[/red]")
-        raise typer.Exit(code=1)
-    if not dry_run:
-        try:
-            preview = _parse_leading_json(out)
-        except (ValueError, json.JSONDecodeError):
-            preview = []
-        if not isinstance(preview, list) or not preview:
-            print("[green]No new yunos to activate. Nothing to do.[/green]")
-            raise typer.Exit(code=0)
-        print(f"[cyan]{len(preview)} new yuno row(s) would be created:[/cyan]")
-        for line in preview:
-            print(f"  {line}")
-
-        # 3) Confirm + create.
-        if not yes and not typer.confirm("Create these new yuno rows?", default=False):
-            print("[yellow]Aborted: no rows created, no snap consumed, no restart.[/yellow]")
-            raise typer.Exit(code=1)
-
+    # 4) Create the new yuno rows.
     # Suppress the verbose created-node table; print a one-line summary instead.
     ok, out = run_ycommand(ycommand, url, "find-new-yunos create=1", dry_run, echo_output=False)
     # Resumed upgrade: a prior run already registered the new yuno rows but never
@@ -868,7 +874,7 @@ def upgrade_yunos(
         else:
             print(f"[green]Created {len(preview)} new yuno row(s).[/green]")
 
-    # 4) deactivate-snap -> restart_nodes() on the agent.
+    # 5) deactivate-snap -> restart_nodes() on the agent.
     ok, _ = run_ycommand(ycommand, url, "deactivate-snap", dry_run)
     if not ok and not dry_run:
         print("[red]Error: deactivate-snap failed.[/red]")

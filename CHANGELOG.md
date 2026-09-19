@@ -1,5 +1,14 @@
 # **Changelog**
 
+## 0.19.2 -- 19-Sep-2026
+- **`upgrade-yunos` no longer shoots a snap when there is nothing to
+  upgrade.** The rollback snap was the FIRST step, before the
+  `find-new-yunos` preview. So a run with no new yunos still shot
+  `pre-upgrade-<date>` and then answered *"Nothing to do"*. That snap is not
+  free: it tags every current record, and it clones every record another snap
+  had tagged already. The preview now goes first, then the confirmation, and
+  only then the snap. A "no" at the prompt also leaves no snap behind.
+
 ## 0.19.1 -- 01-Aug-2026
 - **Every `ycommand` call carries the node's identity.** Four calls inside the
   CLI were built with the url alone — no OAuth2 flags, no TLS — while the
