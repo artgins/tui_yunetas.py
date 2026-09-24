@@ -742,6 +742,39 @@ def sync(
     raise typer.Exit(code=exit_code)
 
 
+#--------------------------------------------------#
+#   find-new-yunos preview
+#--------------------------------------------------#
+# Since SDK 7.25.5 the agent keeps in the preview a row whose instance at the
+# new release is already registered (a create=1 that was never promoted), with
+# this prefix in front of its create-yuno command. create=1 does not run it:
+# only deactivate-snap is left to do for it.
+FIND_NEW_YUNOS_REGISTERED_PREFIX = "already registered, pending promotion"
+
+
+def split_find_new_yunos_preview(preview):
+    """
+    Split the rows of a find-new-yunos preview into the create-yuno commands
+    that create=1 will run, and the rows the agent marks as already
+    registered, pending promotion. Returns (to_create, registered), both
+    lists of strings.
+    """
+    to_create = []
+    registered = []
+    for row in preview:
+        text = row if isinstance(row, str) else json.dumps(row)
+        if text.startswith(FIND_NEW_YUNOS_REGISTERED_PREFIX):
+            registered.append(text)
+        else:
+            to_create.append(text)
+    return to_create, registered
+
+
+def upgrade_rows_summary(created, registered):
+    """The one-line summary of step 4 of upgrade-yunos."""
+    return f"{created} created, {registered} already registered"
+
+
 @app.command(name="upgrade-yunos")
 def upgrade_yunos(
     snap_name: Optional[str] = typer.Option(
@@ -774,11 +807,16 @@ def upgrade_yunos(
 
       1. find-new-yunos (preview): list the create-yuno rows that would be
          registered. With none, stop here: nothing is shot, nothing restarts.
+         A row the agent marks "already registered, pending promotion" (a
+         create=1 of an earlier run that was never promoted) is counted
+         apart: it needs no create, only the promotion of step 5.
       2. Ask for confirmation (skip the prompt with --yes).
       3. Rollback snapshot (idempotent by name): shoot-snap only if no snap
          named like the default 'pre-upgrade-<YYYYMMDD>' (or --snap-name)
          already exists. Skipped with --no-snap.
-      4. find-new-yunos create=1: register the new yuno-instance rows.
+      4. find-new-yunos create=1: register the new yuno-instance rows, and
+         print "N created, M already registered". Skipped when every row
+         is already registered.
       5. deactivate-snap: triggers restart_nodes() on the agent (SIGKILL +
          treedb reload), promoting the newest release of every yuno.
     """
@@ -807,6 +845,8 @@ def upgrade_yunos(
     if not ok and not dry_run:
         print("[red]Error: find-new-yunos failed.[/red]")
         raise typer.Exit(code=1)
+    to_create = []
+    registered = []
     if not dry_run:
         try:
             preview = _parse_leading_json(out)
@@ -815,12 +855,22 @@ def upgrade_yunos(
         if not isinstance(preview, list) or not preview:
             print("[green]No new yunos to activate. Nothing to do.[/green]")
             raise typer.Exit(code=0)
-        print(f"[cyan]{len(preview)} new yuno row(s) would be created:[/cyan]")
-        for line in preview:
-            print(f"  {line}")
+        to_create, registered = split_find_new_yunos_preview(preview)
+        if to_create:
+            print(f"[cyan]{len(to_create)} new yuno row(s) would be created:[/cyan]")
+            for line in to_create:
+                print(f"  {line}")
+        if registered:
+            print(f"[cyan]{len(registered)} yuno row(s) already registered, pending promotion:[/cyan]")
+            for line in registered:
+                print(f"  {line}")
 
         # 2) Confirm.
-        if not yes and not typer.confirm("Create these new yuno rows?", default=False):
+        if to_create:
+            question = "Create these new yuno rows?"
+        else:
+            question = "Promote these already registered yunos?"
+        if not yes and not typer.confirm(question, default=False):
             print("[yellow]Aborted: no snap shot, no rows created, no restart.[/yellow]")
             raise typer.Exit(code=1)
 
@@ -850,11 +900,36 @@ def upgrade_yunos(
                     raise typer.Exit(code=1)
 
     # 4) Create the new yuno rows.
+    # Rows the agent marks as already registered are not created again
+    # (create=1 skips them), so with nothing else there is nothing to run:
+    # straight on to the promotion.
+    if not dry_run and not to_create:
+        print(f"[green]{upgrade_rows_summary(0, len(registered))}: "
+              f"nothing to create, proceeding to promote.[/green]")
+    else:
+        _create_new_yuno_rows(ycommand, url, dry_run, to_create, registered)
+
+    # 5) deactivate-snap -> restart_nodes() on the agent.
+    ok, _ = run_ycommand(ycommand, url, "deactivate-snap", dry_run)
+    if not ok and not dry_run:
+        print("[red]Error: deactivate-snap failed.[/red]")
+        raise typer.Exit(code=1)
+
+    print("[green]upgrade-yunos done: new releases promoted and nodes restarted.[/green]")
+
+
+def _create_new_yuno_rows(ycommand, url, dry_run, to_create, registered):
+    """
+    Step 4 of upgrade-yunos: find-new-yunos create=1, and its one-line
+    summary. Raises typer.Exit on a failure that is not idempotent.
+    """
     # Suppress the verbose created-node table; print a one-line summary instead.
     ok, out = run_ycommand(ycommand, url, "find-new-yunos create=1", dry_run, echo_output=False)
-    # Resumed upgrade: a prior run already registered the new yuno rows but never
-    # promoted them (deactivate-snap missing). The preview still lists them because
-    # the OLD primary rows survive and a newer binary is found for each, so create=1
+    # Resumed upgrade against an agent before SDK 7.25.5 (since then the agent
+    # marks those rows itself, see split_find_new_yunos_preview): a prior run
+    # already registered the new yuno rows but never promoted them
+    # (deactivate-snap missing). The preview still lists them because the OLD
+    # primary rows survive and a newer binary is found for each, so create=1
     # re-runs create-yuno and the agent answers "Yuno already exists" (result<0).
     # That is idempotent: the rows are already there. Don't abort — fall through to
     # deactivate-snap, the step that actually promotes them. Only a non-idempotent
@@ -872,15 +947,7 @@ def upgrade_yunos(
             print("[yellow]New yuno row(s) already registered by a prior run; "
                   "proceeding to promote.[/yellow]")
         else:
-            print(f"[green]Created {len(preview)} new yuno row(s).[/green]")
-
-    # 5) deactivate-snap -> restart_nodes() on the agent.
-    ok, _ = run_ycommand(ycommand, url, "deactivate-snap", dry_run)
-    if not ok and not dry_run:
-        print("[red]Error: deactivate-snap failed.[/red]")
-        raise typer.Exit(code=1)
-
-    print("[green]upgrade-yunos done: new releases promoted and nodes restarted.[/green]")
+            print(f"[green]{upgrade_rows_summary(len(to_create), len(registered))}.[/green]")
 
 
 @app.command()

@@ -1,5 +1,21 @@
 # **Changelog**
 
+## 0.19.4 -- 25-Sep-2026
+- **`upgrade-yunos` counts the rows that are already registered apart.**
+  Since SDK 7.25.5 `find-new-yunos` keeps in its preview a row whose instance
+  at the new release already exists (a `create=1` of an earlier run that was
+  never promoted), marked `already registered, pending promotion
+  (deactivate-snap): create-yuno ...`, and `create=1` does not run it. Step 4
+  counted every row of the preview as created (*"Created 2 new yuno
+  row(s)"* when one was created and one was already there). The preview now
+  lists the two kinds apart, and step 4 prints `N created, M already
+  registered`. When every row is already registered, `create=1` is skipped
+  and the flow goes on to `deactivate-snap`, which is the step left to do.
+- First tests of the CLI: `tests/test_upgrade_yunos.py` (`unittest`, with a
+  fake agent).
+- README: the order of the `upgrade-yunos` steps (the preview goes first
+  since 0.19.2).
+
 ## 0.19.3 -- 19-Sep-2026
 - **`sync-binaries` reads the build date in its new form.** Since SDK 7.23.x
   a binary reports its `date` as ISO 8601 UTC (`2026-09-18T16:13:49Z`). It

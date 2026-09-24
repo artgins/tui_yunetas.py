@@ -77,10 +77,28 @@ yunetas upgrade-yunos         # find-new-yunos (confirm) -> snapshot -> deactiva
 ```
 
 `sync` does not restart anything by itself; `upgrade-yunos` is the promote
-step. It shoots a rollback snapshot first (idempotent by name; reuses an
-already-active snap instead of stacking a new one; `--no-snap` to skip), then
-previews `find-new-yunos` and asks before `create=1`, then `deactivate-snap`
-triggers `restart_nodes()` on the agent. Preview either step with `-n`.
+step. It previews `find-new-yunos` first and stops there when there is
+nothing new, then asks, then shoots a rollback snapshot (idempotent by name;
+reuses an already-active snap instead of stacking a new one; `--no-snap` to
+skip), then runs `create=1`, then `deactivate-snap` triggers
+`restart_nodes()` on the agent. Preview the steps with `-n`.
+
+A row that the agent marks `already registered, pending promotion
+(deactivate-snap): create-yuno ...` (a `create=1` of an earlier run that was
+never promoted, SDK 7.25.5 and later) is counted apart. It needs no
+`create=1`, only the promotion:
+
+```text
+1 new yuno row(s) would be created:
+  create-yuno id=gate^one ...
+1 yuno row(s) already registered, pending promotion:
+  already registered, pending promotion (deactivate-snap): create-yuno id=gate^two ...
+...
+1 created, 1 already registered.
+```
+
+When every row is already registered, `create=1` is skipped and the command
+goes on to `deactivate-snap`.
 
 For a same-version hot-patch (no `APP_VERSION` bump) you don't need
 `upgrade-yunos`: `sync` then bounce the affected yunos (`kill-yuno` +
@@ -109,6 +127,15 @@ This package use `pdm` to build and publish.
   # Next go to source root folder
   pdm build
   pdm publish --username __token__ --password <your-api-token> # (me: the full command is saved in publish-tui_yunetas.sh)
+```
+
+## Tests
+
+The tests use `unittest` and need the packages of the CLI (typer, rich), so
+run them with the Python where the CLI is installed:
+
+```shell
+  python -m unittest discover -s tests
 ```
 
 ## Install the package in editable mode using pip from the source root folder:
