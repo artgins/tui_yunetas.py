@@ -381,15 +381,15 @@ def local_binaries(yunos_dir):
             continue
         role = info.get("role") or name
         if role != name:
-            # $$(<file>) uploads by filename; update-binary id=<role> targets by
-            # the agent id. They normally coincide; warn if they don't.
-            print(yellow("  ! %s: role '%s' != filename, using filename for upload" % (name, role)))
+            # update-binary id=<role> targets by the agent id, which is the
+            # filename here. They normally coincide; warn if they don't.
+            print(yellow("  ! %s: role '%s' != filename, using filename as the id" % (name, role)))
         try:
             mtime = int(os.path.getmtime(path))
         except OSError:
             mtime = None
         out[name] = {
-            "role": name,            # what $$(...) and id= will use
+            "role": name,            # what id= will use
             "reported_role": role,
             "version": info.get("version", "?"),
             "date": info.get("date", "?"),
@@ -694,7 +694,7 @@ def agent_start_priorities(ycommand, url, jwt):
     return out
 
 
-def wait_until_stopped(ycommand, url, jwt, role, timeout_s=15.0, poll_s=0.3):
+def wait_until_stopped(ycommand, url, jwt, role, timeout_s=60.0, poll_s=0.3):
     """
     Poll '*list-yunos yuno_role=R' until no instance reports yuno_running, so
     the executable is unmapped before update-binary overwrites its slot
@@ -709,17 +709,17 @@ def wait_until_stopped(ycommand, url, jwt, role, timeout_s=15.0, poll_s=0.3):
     return False
 
 
-def deploy_install(ycommand, url, jwt, action, role, dry_run):
+def deploy_install(ycommand, url, jwt, action, role, path, dry_run):
     """install-binary / update-binary with NO lifecycle (--no-restart, or bump)."""
     ok, _ = run_ycmd(
         ycommand, url, jwt,
-        "%s id=%s content64=$$(%s)" % (action, role, role),
+        "%s id=%s content64=$$(%s)" % (action, role, path),
         dry_run,
     )
     return ok
 
 
-def deploy_update_with_restart(ycommand, url, jwt, role, local_version, dry_run):
+def deploy_update_with_restart(ycommand, url, jwt, role, path, local_version, dry_run):
     """
     Same-version REBUILD hot-patch, scoped to `role`: stop the running
     instance(s) so the slot is free, overwrite it, then restore each
@@ -763,7 +763,7 @@ def deploy_update_with_restart(ycommand, url, jwt, role, local_version, dry_run)
 
     ok, _ = run_ycmd(
         ycommand, url, jwt,
-        "update-binary id=%s content64=$$(%s)" % (role, role),
+        "update-binary id=%s content64=$$(%s)" % (role, path),
         dry_run,
     )
 
@@ -836,7 +836,7 @@ def main():
         sys.exit(2)
 
     base = find_yunetas_base()
-    yunos_dir = args.yunos_dir or os.path.join(base, "outputs", "yunos")
+    yunos_dir = os.path.abspath(args.yunos_dir) if args.yunos_dir else os.path.join(base, "outputs", "yunos")
     if not os.path.isdir(yunos_dir):
         print(red("ERROR: yunos dir not found: %s" % yunos_dir))
         sys.exit(2)
@@ -928,11 +928,16 @@ def main():
     ok, fail = 0, 0
     for r in chosen:
         if r["action"] == "update-binary" and not args.no_restart:
+            # The file that was compared, by path: $$(<role>) is resolved by
+            # ycommand against outputs/yunos, not against --yunos-dir, and
+            # uploaded another project's binary of the same name.
             success = deploy_update_with_restart(
-                ycommand, args.url, jwt, r["role"], r["local"]["version"], args.dry_run)
+                ycommand, args.url, jwt, r["role"], r["local"]["path"],
+                r["local"]["version"], args.dry_run)
         else:
             success = deploy_install(
-                ycommand, args.url, jwt, r["action"], r["role"], args.dry_run)
+                ycommand, args.url, jwt, r["action"], r["role"], r["local"]["path"],
+                args.dry_run)
         if success:
             ok += 1
         else:

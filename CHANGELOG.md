@@ -1,5 +1,17 @@
 # **Changelog**
 
+## 0.20.2 -- 28-Sep-2026
+- **`sync-binaries` uploads the file it compared.** The table was built from
+  `--yunos-dir`, but `install-binary` / `update-binary` sent `$$(<role>)`,
+  which ycommand resolves in `outputs/yunos`: on a node with two projects
+  that both build a `gate_caudal` (hidraulia, 2026-09-28), the row said
+  `REBUILD 1.9.0.0` from the staged file and the upload was the other
+  project's 1.6.1.0. The command now carries the file's path (and
+  `--yunos-dir` is made absolute).
+- The wait for a yuno to stop before a same-version `update-binary` goes from
+  15 to 60 s: two gates on yunovatios' central were still stopping at 15 s
+  and the copy hit text-file-busy.
+
 ## 0.20.1 -- 28-Sep-2026
 - **`init` keeps the ctest logs.** `yunetas test` leaves one
   `build/<timestamp>.txt` per run, the history a release compares timings
