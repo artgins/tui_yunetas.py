@@ -131,6 +131,11 @@ DIRECTORIES = [
     "performance/c/*",
 ]
 
+# The log `yunetas test` leaves per ctest run, build/<isoformat>.txt: the
+# history the release rule compares timings against. `init` recreates build/,
+# and must carry these across.
+CTEST_LOG_NAME = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}(\.\d+)?\.txt$")
+
 # Create the app.
 app = typer.Typer(help="TUI for yunetas SDK")
 app.add_typer(app_venv, name="venv")
@@ -1894,14 +1899,22 @@ def process_directories(directories: List[str]):
                 build_dir = dir_path / "build"
 
                 try:
-                    # Remove build directory if it exists
+                    # Remove build directory if it exists, keeping the ctest logs
+                    ctest_logs = {}
                     if build_dir.exists():
+                        for log in build_dir.glob("*.txt"):
+                            if CTEST_LOG_NAME.match(log.name):
+                                ctest_logs[log.name] = log.read_bytes()
                         print(f"[yellow]Removing existing build directory: {build_dir}[/yellow]")
                         subprocess.run(["rm", "-rf", str(build_dir)], check=True)
 
                     # Create a new build directory
                     print(f"[green]Creating build directory: {build_dir}[/green]")
                     build_dir.mkdir(parents=True, exist_ok=True)
+                    for name, data in ctest_logs.items():
+                        (build_dir / name).write_bytes(data)
+                    if ctest_logs:
+                        print(f"[green]Kept {len(ctest_logs)} ctest log(s) in {build_dir}[/green]")
 
                     # Run cmake with build type and optional compiler
                     cmake_command = [

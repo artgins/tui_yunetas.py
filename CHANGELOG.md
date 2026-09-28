@@ -1,5 +1,13 @@
 # **Changelog**
 
+## 0.20.1 -- 28-Sep-2026
+- **`init` keeps the ctest logs.** `yunetas test` leaves one
+  `build/<timestamp>.txt` per run, the history a release compares timings
+  against, and `init` recreated `build/` with `rm -rf`: the clean rebuild a
+  version bump requires wiped it (7.25.12 lost it on two machines). `init` now
+  carries the `<timestamp>.txt` logs across; everything else in `build/` goes
+  as before.
+
 ## 0.20.0 -- 28-Sep-2026
 - **Secret overlays removed (BREAKING).** `list-secrets` and the
   `--secrets-dir` option of `sync-configs` are gone, and `sync` /
