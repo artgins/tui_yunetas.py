@@ -1,5 +1,22 @@
 # **Changelog**
 
+## 0.20.0 -- 28-Sep-2026
+- **Secret overlays removed (BREAKING).** `list-secrets` and the
+  `--secrets-dir` option of `sync-configs` are gone, and `sync` /
+  `sync-configs --node` no longer read `~/.yuneta/secrets/<node>/`. A
+  credential a yuno needs goes in its config file again, like any other
+  value, and `sync-configs` pushes the file as it is.
+
+  The overlays (0.16.0) kept an SMTP password out of a private repo as a
+  `"__SECRET__"` placeholder, filled only by `sync-configs`. Every other way a
+  config reaches an agent registers the file as written: on 2026-09-28 a
+  node's reinstall script registered the placeholder itself, the emailsender
+  logged in with the literal `__SECRET__`, and the provider banned the node's
+  address. Keeping the value out of a private repo was not worth that.
+
+  A config that still carries `"__SECRET__"` is now pushed with it: replace
+  the placeholder with the value before the next push.
+
 ## 0.19.4 -- 25-Sep-2026
 - **`upgrade-yunos` counts the rows that are already registered apart.**
   Since SDK 7.25.5 `find-new-yunos` keeps in its preview a row whose instance
