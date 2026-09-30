@@ -298,8 +298,8 @@ def obtain_jwt(args):
         print(red("ERROR: OAuth2 login failed: %s" % e))
         sys.exit(2)
     jwt = tok.get("access_token")
-    if not jwt:
-        print(red("ERROR: token endpoint returned no access_token."))
+    if not isinstance(jwt, str) or not jwt:
+        print(red("ERROR: token endpoint returned no access_token (or not a string)."))
         sys.exit(2)
     return jwt
 
