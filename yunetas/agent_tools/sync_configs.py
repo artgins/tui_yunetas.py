@@ -270,8 +270,8 @@ def discover_token_endpoint(issuer, timeout=30):
     """Read token_endpoint from the issuer's OIDC discovery document."""
     doc = _http_json(issuer.rstrip("/") + "/.well-known/openid-configuration",
                      timeout=timeout)
-    ep = doc.get("token_endpoint")
-    if not ep:
+    ep = doc.get("token_endpoint") if isinstance(doc, dict) else None
+    if not isinstance(ep, str) or not ep:
         raise RuntimeError("OIDC discovery document has no token_endpoint")
     return ep
 
@@ -288,7 +288,11 @@ def obtain_jwt(args):
         return args.jwt
     if not (args.user_id and args.user_passw and (args.issuer or args.token_endpoint)):
         return None
-    token_endpoint = args.token_endpoint or discover_token_endpoint(args.issuer)
+    try:
+        token_endpoint = args.token_endpoint or discover_token_endpoint(args.issuer)
+    except Exception as e:
+        print(red("ERROR: OIDC discovery failed: %s" % e))
+        sys.exit(2)
     form = {
         "grant_type": "password",
         "client_id": args.client_id or "",
@@ -311,7 +315,7 @@ def obtain_jwt(args):
     except Exception as e:
         print(red("ERROR: OAuth2 login failed: %s" % e))
         sys.exit(2)
-    jwt = tok.get("access_token")
+    jwt = tok.get("access_token") if isinstance(tok, dict) else None
     if not isinstance(jwt, str) or not jwt:
         print(red("ERROR: token endpoint returned no access_token (or not a string)."))
         sys.exit(2)

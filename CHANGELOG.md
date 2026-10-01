@@ -6,7 +6,9 @@
   the token endpoint answered to ycommand's argv, so an IdP that answered a
   number or an object made Python raise `TypeError`. They now stop with
   "token endpoint returned no access_token (or not a string)", exit code 2,
-  as for a missing token.
+  as for a missing token. A token answer or an OIDC discovery document that
+  is not a JSON object (a list, a string), and a discovery that fails, are
+  refused the same way instead of raising `AttributeError` or a traceback.
 
 ## 0.20.2 -- 28-Sep-2026
 - **`sync-binaries` uploads the file it compared.** The table was built from
