@@ -1,5 +1,17 @@
 # **Changelog**
 
+## Unreleased
+- **`yunetas build` says when two builds install a yuno of the same role.**
+  The SDK and every registered project install their yunos into one
+  `outputs/yunos`, so a role two of them build is overwritten by whichever
+  builds last, and `sync-binaries` or `update-binary $$()` then ship that
+  one -- it sent yunovatios' `gate_caudal` to hidraulia for three hours.
+  After the builds, the CLI reads each tree's `install_manifest.txt` and
+  ends with a red WARNING per role installed by more than one of them
+  (`role 'gate_caudal' is installed in outputs/yunos by hidraulia AND
+  yunovatios`). A warning, not a refusal: a machine that builds projects
+  sharing roles on purpose keeps building.
+
 ## 0.20.3 -- 01-Oct-2026
 - **An access_token that is not a string is refused with a clear error.**
   `sync-binaries`, `sync-configs` and `set-start-priorities` passed whatever

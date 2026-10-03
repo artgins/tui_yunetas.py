@@ -289,6 +289,23 @@ def build(
         process_build_command([yunos_dir], ["make", "install"])
         final_messages.append(f"Project [cyan]{project['name']}[/cyan] built.")
 
+    #
+    #   Two builds that install a yuno of the same role overwrite each other
+    #   in outputs/yunos (one directory for the SDK and every project), and
+    #   sync-binaries / $$() then ship whichever came last. It sent
+    #   yunovatios' gate_caudal to hidraulia for three hours.
+    #   Said loudly, last, and not refused: a machine that builds projects
+    #   sharing roles on purpose would stop building at all.
+    #
+    collisions = find_yuno_role_collisions(load_registered_projects())
+    for role, owners in sorted(collisions.items()):
+        final_messages.append(
+            f"[bold red]WARNING: yuno role '{role}' is installed in outputs/yunos by "
+            f"{' AND '.join(sorted(owners))}: the last build overwrote the other one's binary. "
+            f"Do not ship it from outputs/yunos (sync-binaries, update-binary $$()) "
+            f"without building the right project last.[/bold red]"
+        )
+
     final_messages.append(f"\n[yellow]build[/yellow] done.\n")
     print("\n".join(final_messages))
 
@@ -1290,6 +1307,52 @@ def resolve_node_connection(node_name, url, force_tunnel=False):
     # No node: behave as before. A bare url (or the tool's own default) with
     # no tunnel to manage.
     return NodeConnection({"name": "(none)", "url": url or "ws://127.0.0.1:1991"})
+
+
+def installed_yuno_roles(directories):
+    """
+    The yuno roles the build trees of `directories` installed in
+    outputs/yunos, read from their build/install_manifest.txt (written by
+    `make install`; a tree never installed has none). Entries are
+    YUNETAS_BASE-relative (wildcards allowed, as DIRECTORIES) or absolute.
+    """
+    roles = set()
+    base_path = Path(YUNETAS_BASE)
+    yunos_dir = os.path.join(YUNETAS_BASE, "outputs", "yunos") + os.sep
+    for directory in directories:
+        if os.path.isabs(directory):
+            path_pattern = Path(directory)
+        else:
+            path_pattern = base_path / directory
+        for dir_path in path_pattern.parent.glob(path_pattern.name):
+            manifest = dir_path / "build" / "install_manifest.txt"
+            if not manifest.is_file():
+                continue
+            for line in manifest.read_text(errors="replace").splitlines():
+                line = line.strip()
+                if not line.startswith(yunos_dir):
+                    continue
+                role = line[len(yunos_dir):]
+                if not role or os.sep in role:
+                    continue
+                roles.add(role)
+    return roles
+
+
+def find_yuno_role_collisions(projects):
+    """
+    {role: {owner, ...}} for every yuno role installed in outputs/yunos by
+    more than one of: the SDK ("yunetas") and the registered `projects`.
+    From what each one installed last, so a role a project no longer builds
+    stops counting once its tree is installed again.
+    """
+    owners = {}
+    for role in installed_yuno_roles(DIRECTORIES):
+        owners.setdefault(role, set()).add("yunetas")
+    for project in projects:
+        for role in installed_yuno_roles([project_yunos_dir(project)]):
+            owners.setdefault(role, set()).add(project["name"])
+    return {role: who for role, who in owners.items() if len(who) > 1}
 
 
 def project_yunos_dir(project):
