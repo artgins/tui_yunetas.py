@@ -1,6 +1,6 @@
 # **Changelog**
 
-## Unreleased
+## 0.20.4 -- 03-Oct-2026
 - **`yunetas build` says when two builds install a yuno of the same role.**
   The SDK and every registered project install their yunos into one
   `outputs/yunos`, so a role two of them build is overwritten by whichever
