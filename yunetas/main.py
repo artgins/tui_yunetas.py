@@ -63,7 +63,7 @@ if env_base and (not os.path.isdir(env_base)):
 if not YUNETAS_BASE:
     print("[red]Error: Could not determine YUNETAS_BASE. "
           "Set the YUNETAS_BASE environment variable to a valid directory, "
-          "or ensure /yuneta/development[/yunetas] exists.[/red]", file=sys.stderr)
+          "or ensure /yuneta/development\\[/yunetas] exists.[/red]", file=sys.stderr)
     sys.exit(1)
 
 # Don't print here: this module runs on every invocation, including the
@@ -893,18 +893,63 @@ def _create_new_yuno_rows(ycommand, url, dry_run, to_create, registered):
             print(f"[green]{upgrade_rows_summary(len(to_create), len(registered))}.[/green]")
 
 
+# The first SDK whose tests declare what they share (RESOURCE_LOCK,
+# FIXTURES_*, RUN_SERIAL), so that ctest can run them at once. An older tree
+# runs them one after another: in parallel its timeranger2 iterators fail.
+CTEST_PARALLEL_SINCE = (7, 26, 1)
+
+
+def sdk_version():
+    """The (major, minor, patch) of YUNETA_VERSION, or None (said)."""
+    path = os.path.join(YUNETAS_BASE, "YUNETA_VERSION")
+    try:
+        with open(path) as f:
+            text = f.read()
+    except OSError as e:
+        print(f"[yellow]Cannot read {path}: {e.strerror}[/yellow]")
+        return None
+    m = re.search(r"^YUNETA_VERSION\s*=\s*(\d+)\.(\d+)\.(\d+)", text, re.M)
+    if not m:
+        print(f"[yellow]No YUNETA_VERSION=<x.y.z> line in {path}[/yellow]")
+        return None
+    return tuple(int(x) for x in m.groups())
+
+
 @app.command()
-def test():
+def test(
+    jobs: int = typer.Option(
+        os.cpu_count() or 1, "--jobs", "-j",
+        help="Jobs of make and ctest (default: the number of cores)."
+    ),
+    serial: bool = typer.Option(
+        False, "--serial", help="Run ctest one test after another."
+    ),
+    clean: bool = typer.Option(
+        False, "--clean",
+        help="make clean before building. Not needed: a test is relinked when "
+             "an installed library it links changes."
+    ),
+):
     """
-    Run ctest in yunetas
+    Build the SDK and run ctest in yunetas
     """
-    process_build_command(DIRECTORIES, ["make", "install"])
-    process_build_command(["."], ["make", "install"])
-    process_build_command(["."], ["make", "clean"])
-    ret = process_build_command(["."], ["make", "install"])
+    make_jobs = f"-j{max(jobs, 1)}"
+    process_build_command(DIRECTORIES, ["make", make_jobs, "install"])
+    if clean:
+        process_build_command(["."], ["make", "clean"])
+    ret = process_build_command(["."], ["make", make_jobs, "install"])
     if ret == 0:
+        ctest_jobs = 1 if serial else max(jobs, 1)
+        version = sdk_version()
+        if ctest_jobs > 1 and (version is None or version < CTEST_PARALLEL_SINCE):
+            since = ".".join(str(x) for x in CTEST_PARALLEL_SINCE)
+            print(f"[yellow]ctest runs serially: the tests of this SDK declare "
+                  f"what they share only since {since}.[/yellow]")
+            ctest_jobs = 1
         filename = datetime.now().isoformat().replace(":", "-") + ".txt"
-        process_build_command(["."], ["ctest", "--output-log", filename])
+        process_build_command(
+            ["."], ["ctest", f"-j{ctest_jobs}", "--output-log", filename]
+        )
 
 
 def version_callback(value: bool):

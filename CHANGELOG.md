@@ -1,5 +1,23 @@
 # **Changelog**
 
+## 0.21.0 -- 04-Oct-2026
+- **`yunetas test` compiles in parallel and no longer runs `make clean`.**
+  Each run did `make install` in the root `build/`, then `make clean`, then a
+  full rebuild, all without `-j`. On a 4-core machine with no change in the
+  sources, that cost ~600 s before ctest started. The clean came from 0.5.1,
+  when the tests linked the libraries by `-l` name. Since the SDK links them
+  by full path (2026-06-11), a test relinks when an installed library that it
+  links changes. Now `make -j<jobs>` runs in the module dirs and in `build/`
+  (~200 s on that machine). `--clean` brings back the `make clean`.
+- **`yunetas test` runs `ctest -j<jobs>` on an SDK that declares what its
+  tests share** (7.26.1 and later: `RESOURCE_LOCK`, `FIXTURES_*`,
+  `RUN_SERIAL`). On an older SDK it runs ctest serially and says why,
+  because the timeranger2 iterators of that SDK fail in parallel. Options:
+  `--jobs/-j N` (default: the number of cores) and `--serial`.
+- **The error for an unresolved `YUNETAS_BASE` prints again.** `rich` read
+  `[/yunetas]` in the message as a closing tag and raised `MarkupError`, so
+  the user got a traceback instead of the message.
+
 ## 0.20.4 -- 03-Oct-2026
 - **`yunetas build` says when two builds install a yuno of the same role.**
   The SDK and every registered project install their yunos into one
