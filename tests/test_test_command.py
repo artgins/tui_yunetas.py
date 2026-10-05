@@ -47,6 +47,7 @@ def test_parallel_on_an_sdk_that_passes_it(calls):
     assert ["make", "clean"] not in [c for d, c in seen]
     c = ctest_of(seen)
     assert c[:2] == ["ctest", "-j4"]
+    assert "--output-on-failure" in c
     assert c[-1].endswith(".j4.txt") and m.CTEST_LOG_NAME.match(c[-1])
 
 

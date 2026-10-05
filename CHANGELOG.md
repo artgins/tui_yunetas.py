@@ -1,5 +1,12 @@
 # **Changelog**
 
+## 0.21.2 -- 05-Oct-2026
+- **`yunetas test` runs ctest with `--output-on-failure`**, so the output of
+  a failed test is kept in `build/<date>.j<N>.txt`. It was only in
+  `Testing/Temporary/LastTest.log`, which the next ctest run truncates (a
+  `--show-only` too, as the SDK's `check_test_databases.py` ran): the cloud
+  verification lost why `test_yevent_timer_once1` failed that way.
+
 ## 0.21.1 -- 05-Oct-2026
 - **`yunetas test` runs ctest in parallel from SDK 7.26.3 on, not 7.26.1.**
   7.26.2's suite failed in parallel on two nodes (the groups of

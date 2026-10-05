@@ -964,8 +964,11 @@ def test(
                       f"in parallel only since {since}.[/yellow]")
                 ctest_jobs = 1
         filename = datetime.now().isoformat().replace(":", "-") + f".j{ctest_jobs}.txt"
+        # --output-on-failure: the output of a failed test lands in the log
+        # kept in build/, not only in LastTest.log, which the next ctest run
+        # truncates (--show-only too)
         process_build_command(
-            ["."], ["ctest", f"-j{ctest_jobs}", "--output-log", filename]
+            ["."], ["ctest", f"-j{ctest_jobs}", "--output-on-failure", "--output-log", filename]
         )
 
 
