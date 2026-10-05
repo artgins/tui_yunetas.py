@@ -1,5 +1,22 @@
 # **Changelog**
 
+## 0.21.1 -- 05-Oct-2026
+- **`yunetas test` runs ctest in parallel from SDK 7.26.3 on, not 7.26.1.**
+  7.26.2's suite failed in parallel on two nodes (the groups of
+  `test_c_treedb_literal_wins` exhausted the per-user inotify instances,
+  fixed in 7.26.3), so a 7.26.2 tree runs its tests one after another.
+- **`yunetas build` takes `--jobs/-j`** too (default: the cores this
+  process may run on), for the SDK and the registered projects. A full
+  build was where `make` without `-j` cost most.
+- **The ctest log says its job count**: `build/<date>.j<N>.txt`. The times
+  of a run at `-j8` and of a serial one are not comparable, and the release
+  trend reads them from these logs. `init` keeps the old and the new names.
+- `-j 0` and `-j -3` are refused instead of becoming `-j1`; the default
+  counts the cores of the process's affinity (a container's), not the
+  host's; the SDK version is not read when ctest runs serially anyway.
+- Unit tests of `test` and `build` (the commands they run) and of
+  `sdk_version()`.
+
 ## 0.21.0 -- 04-Oct-2026
 - **`yunetas test` compiles in parallel and no longer runs `make clean`.**
   Each run did `make install` in the root `build/`, then `make clean`, then a

@@ -36,9 +36,12 @@ For more details, see [doc.yuneta.io](https://doc.yuneta.io)
 
 ```shell
 yunetas init                  # create build dirs, compiler/build-type from .config (menuconfig)
-yunetas build                 # make install: SDK + registered projects
+yunetas build [-j N]          # make -jN install: SDK + registered projects
 yunetas clean                 # make clean:   SDK + registered projects
-yunetas test                  # ctest
+yunetas test [-j N] [--serial] [--clean]
+                              # make -jN install (SDK + root build/), then ctest -jN
+                              # (serially on an SDK older than 7.26.3); the log is
+                              # build/<date>.j<N>.txt
 
 # External projects (registry in ~/.yuneta/projects.json, machine-local)
 yunetas register-project <path>     # <path> must contain yunos/CMakeLists.txt

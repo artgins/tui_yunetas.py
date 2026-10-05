@@ -134,7 +134,15 @@ DIRECTORIES = [
 # The log `yunetas test` leaves per ctest run, build/<isoformat>.txt: the
 # history the release rule compares timings against. `init` recreates build/,
 # and must carry these across.
-CTEST_LOG_NAME = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}(\.\d+)?\.txt$")
+CTEST_LOG_NAME = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}(\.\d+)?(\.j\d+)?\.txt$")
+
+
+def default_jobs():
+    """The cores this process may run on (a container's affinity, not the host's)."""
+    try:
+        return len(os.sched_getaffinity(0)) or 1
+    except (AttributeError, OSError):
+        return os.cpu_count() or 1
 
 # Create the app.
 app = typer.Typer(help="TUI for yunetas SDK")
@@ -265,10 +273,15 @@ def build(
     sdk_only: bool = typer.Option(
         False, "--sdk-only", help="Build only the yunetas SDK, skip registered projects."
     ),
+    jobs: int = typer.Option(
+        default_jobs(), "--jobs", "-j", min=1,
+        help="Jobs of make (default: the cores this process may run on)."
+    ),
 ):
     """
     Build and install yunetas, then the registered projects (see register-project).
     """
+    make_jobs = f"-j{jobs}"
     include_sdk, selected_projects = resolve_selection(projects, sdk_only)
 
     # Refuse to build against a stale outputs_ext/ (linux-ext-libs bumped but
@@ -278,7 +291,7 @@ def build(
     setup_yuneta_environment(False)
 
     if include_sdk:
-        process_build_command(DIRECTORIES, ["make", "install"])
+        process_build_command(DIRECTORIES, ["make", make_jobs, "install"])
 
     for project in selected_projects:
         yunos_dir = project_yunos_dir(project)
@@ -286,7 +299,7 @@ def build(
             print(f"[red]Error: '{yunos_dir}/build' not found. Run 'yunetas init {project['name']}' first.[/red]")
             raise typer.Exit(code=1)
         print(f"[cyan]Project: {project['name']} ({project['path']})[/cyan]")
-        process_build_command([yunos_dir], ["make", "install"])
+        process_build_command([yunos_dir], ["make", make_jobs, "install"])
         final_messages.append(f"Project [cyan]{project['name']}[/cyan] built.")
 
     #
@@ -893,10 +906,12 @@ def _create_new_yuno_rows(ycommand, url, dry_run, to_create, registered):
             print(f"[green]{upgrade_rows_summary(len(to_create), len(registered))}.[/green]")
 
 
-# The first SDK whose tests declare what they share (RESOURCE_LOCK,
-# FIXTURES_*, RUN_SERIAL), so that ctest can run them at once. An older tree
-# runs them one after another: in parallel its timeranger2 iterators fail.
-CTEST_PARALLEL_SINCE = (7, 26, 1)
+# The first SDK whose suite passes at once (ctest -j). 7.26.1 declares what
+# its tests share (RESOURCE_LOCK, FIXTURES_*, RUN_SERIAL); 7.26.2 split
+# test_c_treedb_literal_wins into groups whose watchers exhausted the
+# per-user inotify instances in parallel (it failed on hidraulia and
+# artgins), fixed in 7.26.3. An older tree runs its tests one after another.
+CTEST_PARALLEL_SINCE = (7, 26, 3)
 
 
 def sdk_version():
@@ -918,8 +933,8 @@ def sdk_version():
 @app.command()
 def test(
     jobs: int = typer.Option(
-        os.cpu_count() or 1, "--jobs", "-j",
-        help="Jobs of make and ctest (default: the number of cores)."
+        default_jobs(), "--jobs", "-j", min=1,
+        help="Jobs of make and ctest (default: the cores this process may run on)."
     ),
     serial: bool = typer.Option(
         False, "--serial", help="Run ctest one test after another."
@@ -931,22 +946,24 @@ def test(
     ),
 ):
     """
-    Build the SDK and run ctest in yunetas
+    Build the SDK and run ctest in yunetas. The ctest log is
+    build/<date>.j<jobs>.txt: timings are compared between runs of one -j.
     """
-    make_jobs = f"-j{max(jobs, 1)}"
+    make_jobs = f"-j{jobs}"
     process_build_command(DIRECTORIES, ["make", make_jobs, "install"])
     if clean:
         process_build_command(["."], ["make", "clean"])
     ret = process_build_command(["."], ["make", make_jobs, "install"])
     if ret == 0:
-        ctest_jobs = 1 if serial else max(jobs, 1)
-        version = sdk_version()
-        if ctest_jobs > 1 and (version is None or version < CTEST_PARALLEL_SINCE):
-            since = ".".join(str(x) for x in CTEST_PARALLEL_SINCE)
-            print(f"[yellow]ctest runs serially: the tests of this SDK declare "
-                  f"what they share only since {since}.[/yellow]")
-            ctest_jobs = 1
-        filename = datetime.now().isoformat().replace(":", "-") + ".txt"
+        ctest_jobs = 1 if serial else jobs
+        if ctest_jobs > 1:
+            version = sdk_version()
+            if version is None or version < CTEST_PARALLEL_SINCE:
+                since = ".".join(str(x) for x in CTEST_PARALLEL_SINCE)
+                print(f"[yellow]ctest runs serially: the suite of this SDK passes "
+                      f"in parallel only since {since}.[/yellow]")
+                ctest_jobs = 1
+        filename = datetime.now().isoformat().replace(":", "-") + f".j{ctest_jobs}.txt"
         process_build_command(
             ["."], ["ctest", f"-j{ctest_jobs}", "--output-log", filename]
         )
