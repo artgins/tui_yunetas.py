@@ -1,5 +1,47 @@
 # **Changelog**
 
+## 0.22.0 -- 20-Oct-2026
+- **The agent tools exit 1 when a push failed.** `sync-binaries`,
+  `sync-configs` and `set-start-priorities` printed `Done: 0 ok, 1 failed`
+  and exited 0, so `yunetas sync` pushed the configs after a failed binaries
+  pass (the half-deploy it exists to prevent), `sync-binaries` printed its
+  "now sync the configs" reminder, and no script could tell. A failed
+  restart of a yuno the tool had stopped counts as a failure too: that yuno
+  is down.
+- **`sync-configs -r` restarts the yunos of an `UPDATE` only.** A yuno runs
+  the config version of its own row (`name_version`), which only
+  `find-new-yunos create=1` + `deactivate-snap` move. After a `BUMP`
+  (`create-config` of a new version) the restart brought the yuno back on
+  the old version. Now a `BUMP` is not restarted, and the tool says to run
+  `yunetas upgrade-yunos`, as `sync-binaries` does after an `install-binary`.
+  A config already installed but not primary gets the same hint.
+- **No password or client secret on a command line.** With `--node`, the CLI
+  turned `$YUNETA_OAUTH_PASSW` into `-X <password>` on the command line of
+  the tool (for the whole run) and of each of its own `ycommand` calls, where
+  any local user reads it in `ps`. The tools now take `-X` and
+  `--client-secret` from `$YUNETA_OAUTH_PASSW` / `$YUNETA_OAUTH_CLIENT_SECRET`
+  by default, and the CLI's own `ycommand` calls (`upgrade-yunos`, the realm
+  match of `sync-configs`) log in once and carry the token: `upgrade-yunos`
+  made about six password grants, each one a new session in the IdP.
+- **`$YUNETA_OAUTH_CLIENT_SECRET` and `$YUNETA_OAUTH_JWT` work for the CLI's
+  own `ycommand` calls.** The secret was passed to `ycommand` as
+  `--client-secret`, an option it does not have (*"unrecognized option"*),
+  so `upgrade-yunos --node` failed and the realm match of `sync-configs` fell
+  back to the hostname. A jwt was passed next to the issuer and the user id,
+  and `ycommand` runs its own password grant whenever it has those two, so
+  the jwt was not used. With a jwt the call now carries the url, the jwt and
+  the TLS flags only.
+- **New command `set-start-priorities`** (with `--node` / `--tunnel`). The
+  tool shipped in the package since 0.17.0 with no command to reach it,
+  while the deprecated `tools/agent/set_start_priorities.py` told the
+  operator to use this command.
+- **`venv` removed.** `venv create` / `venv delete` only printed their
+  argument.
+- Tests: the exit codes of the three tools (against a fake `ycommand`), the
+  restart rule of `sync-configs`, where the credentials of a node go, and
+  the new command. The README says to run them with `pytest`, and documents
+  `register-node` / `--node` and the build with `pipx run pdm`.
+
 ## 0.21.2 -- 05-Oct-2026
 - **`yunetas test` runs ctest with `--output-on-failure`**, so the output of
   a failed test is kept in `build/<date>.j<N>.txt`. It was only in

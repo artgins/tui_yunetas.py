@@ -31,13 +31,15 @@ inline ``record={...}`` form is not coerced by the ycommand CLI).
 
 Like its siblings sync_binaries.py / sync_configs.py it can drive a remote
 wss:// agent: it logs in ONCE (OAuth2 password grant) and threads the jwt
-through ``-j`` on every call. Stdlib only.
+through ``-j`` on every call. Stdlib only. The exit code is 1 when a write
+failed.
 """
 
 import argparse
 import base64
 import fnmatch
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -293,9 +295,12 @@ def main():
     auth.add_argument("-T", "--token-endpoint", default=None,
                       help="explicit token endpoint (skips discovery).")
     auth.add_argument("-Z", "--client-id", default=None, help="OAuth2 client_id.")
-    auth.add_argument("--client-secret", default=None, help="OAuth2 client_secret.")
+    auth.add_argument("--client-secret", default=os.environ.get("YUNETA_OAUTH_CLIENT_SECRET"),
+                      help="OAuth2 client_secret (default: $YUNETA_OAUTH_CLIENT_SECRET).")
     auth.add_argument("-x", "--user-id", default=None, help="OAuth2 username.")
-    auth.add_argument("-X", "--user-passw", default=None, help="OAuth2 password.")
+    auth.add_argument("-X", "--user-passw", default=os.environ.get("YUNETA_OAUTH_PASSW"),
+                      help="OAuth2 password (default: $YUNETA_OAUTH_PASSW, which "
+                           "keeps it out of the process list).")
     auth.add_argument("-j", "--jwt", default=None, help="reuse this jwt directly.")
 
     tls = ap.add_argument_group("TLS (wss:// agent)")
@@ -398,6 +403,10 @@ def main():
     print(dim("\nEffect: next run-yuno launches ascending (utilities first); "
               "kill/pause descending (utilities last)."))
 
+    if fail:
+        return 1
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

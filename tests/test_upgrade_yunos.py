@@ -3,9 +3,10 @@
 #
 #   The agent is not reached: run_ycommand() is replaced by a fake that
 #   answers each ycommand line with a canned output and records what was
-#   asked. Run with the Python that has the CLI installed (typer, rich):
+#   asked. Run with pytest, from a Python that has the CLI's packages
+#   (typer, rich):
 #
-#       python -m unittest discover -s tests
+#       python -m pytest tests
 #
 import json
 import unittest

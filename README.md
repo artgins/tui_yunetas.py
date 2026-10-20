@@ -50,12 +50,21 @@ yunetas list-projects
 yunetas init|build|clean <name>...  # only those projects (SDK skipped)
 yunetas init|build|clean --sdk-only # only the SDK
 
-# Deploy helpers (wrappers over $YUNETAS_BASE/tools/agent/sync_*.py)
+# Deploy targets (registry in ~/.yuneta/nodes.json, mode 600, no credential in it)
+yunetas register-node <name> --url wss://<host>:1993 -I <issuer> -Z <client-id> -x <user>
+yunetas register-node <name> --ssh yuneta@<host>   # tunnel to the node's loopback agent
+yunetas unregister-node <name>
+yunetas list-nodes
+
+# Deploy (the agent tools ship inside this package, yunetas.agent_tools)
 yunetas sync                  [-n|-a|...]          # binaries AND configs together (recommended)
-yunetas sync-binaries         [-n|-a|...]          # outputs/yunos vs the local agent
+yunetas sync-binaries         [-n|-a|...]          # outputs/yunos vs the agent
 yunetas sync-configs          [-n|-a|-r|...]       # auto-match batches/<host>/ to the agent's realm_ids
 yunetas sync-configs --host <host> [...]          # or target one batches dir explicitly
 yunetas upgrade-yunos [--no-snap|--snap-name N|-y|-n]  # find-new-yunos -> snapshot -> deactivate-snap
+yunetas set-start-priorities  [-n|-a|--rule P=N]  # launch tier of each yuno, by role
+
+# every deploy command takes --node <name> (and --tunnel) to act on a registered node
 ```
 
 On a **runtime-only node** (installed from the `.deb`/`.rpm`: `outputs/`,
@@ -63,6 +72,10 @@ On a **runtime-only node** (installed from the `.deb`/`.rpm`: `outputs/`,
 `YUNETA_VERSION`) there is no SDK to build, so `init`/`build`/`clean` with no
 arguments process the registered projects only — naming them is optional.
 `--sdk-only` is an error there.
+
+The deploy commands exit with `1` when a push (or a restart they did) failed,
+so a script can tell. `sync` reads it: it does not push the configs after a
+failed binaries pass.
 
 
 # Deploy flow
@@ -79,12 +92,13 @@ yunetas sync                  # = sync-binaries + sync-configs
 yunetas upgrade-yunos         # find-new-yunos (confirm) -> snapshot -> deactivate-snap
 ```
 
-`sync` does not restart anything by itself; `upgrade-yunos` is the promote
-step. It previews `find-new-yunos` first and stops there when there is
-nothing new, then asks, then shoots a rollback snapshot (idempotent by name;
-reuses an already-active snap instead of stacking a new one; `--no-snap` to
-skip), then runs `create=1`, then `deactivate-snap` triggers
-`restart_nodes()` on the agent. Preview the steps with `-n`.
+`sync` installs a new version next to the old one and does not activate it;
+`upgrade-yunos` is the promote step. It previews `find-new-yunos` first and
+stops there when there is nothing new, then asks, then shoots a rollback
+snapshot (idempotent by name; reuses an already-active snap instead of
+stacking a new one; `--no-snap` to skip), then runs `create=1`, then
+`deactivate-snap` triggers `restart_nodes()` on the agent. Preview the steps
+with `-n`.
 
 A row that the agent marks `already registered, pending promotion
 (deactivate-snap): create-yuno ...` (a `create=1` of an earlier run that was
@@ -104,41 +118,61 @@ When every row is already registered, `create=1` is skipped and the command
 goes on to `deactivate-snap`.
 
 For a same-version hot-patch (no `APP_VERSION` bump) you don't need
-`upgrade-yunos`: `sync` then bounce the affected yunos (`kill-yuno` +
-`run-yuno` / `play-yuno`).
+`upgrade-yunos`: `sync-binaries` stops each rebuilt yuno, overwrites its
+binary and starts it again (`--no-restart` to skip that).
+
+A config is applied in one of two ways:
+
+- **Same version, new content** (`UPDATE`): the yuno reads it at its next
+  start. `sync-configs -r` restarts the yunos that use it.
+- **New version** (`BUMP`): a yuno runs the config version of its own row,
+  so a restart changes nothing. `upgrade-yunos` promotes it.
 
 
-# How build this package
+# Remote nodes
 
-
-## Install pdm
-
-This package use `pdm` to build and publish.
+Register the node once, then add `--node <name>` to any deploy command:
 
 ```shell
-    pip install pdm
-    pip install cement
-    pip install plumbum
-    pip install fastapi
-    pip install "uvicorn[standard]"
-    pip install "typer[all]"
+yunetas register-node prod --url wss://myhost:1993 \
+    -I https://auth.example.com/realms/r -Z myhost -x me@example.com
+export YUNETA_OAUTH_PASSW=...        # or YUNETA_OAUTH_JWT=<a token you have>
+yunetas sync -n --node prod
+yunetas upgrade-yunos --node prod
 ```
+
+The registry stores where a node is and which identity you present, never a
+credential. The password comes from `$YUNETA_OAUTH_PASSW` (and the secret of
+a confidential client from `$YUNETA_OAUTH_CLIENT_SECRET`). The CLI never puts
+them on a command line, where any local user reads them in `ps`: the agent
+tools inherit them in the environment, and the CLI's own `ycommand` calls log
+in once and carry the token.
+
+
+# How to build this package
 
 ## Build and publish
+
+`pdm` builds and publishes it. No permanent install is needed:
+
 ```shell
-  # Firstly change the version (explained below)
-  # Next go to source root folder
-  pdm build
-  pdm publish --username __token__ --password <your-api-token> # (me: the full command is saved in publish-tui_yunetas.sh)
+  # 1. Change the version in yunetas/__version__.py, write the CHANGELOG, commit
+  # 2. From the source root folder:
+  pipx run pdm build
+  pipx run pdm publish --no-build --username __token__ --password <your-api-token>
 ```
+
+PyPI never accepts a version number twice: check the built wheel before
+the upload.
 
 ## Tests
 
-The tests use `unittest` and need the packages of the CLI (typer, rich), so
-run them with the Python where the CLI is installed:
+The tests use `pytest` and need the packages of the CLI (typer, rich):
 
 ```shell
-  python -m unittest discover -s tests
+  python3 -m venv /tmp/venv-yunetas
+  /tmp/venv-yunetas/bin/pip install typer rich pytest
+  /tmp/venv-yunetas/bin/python -m pytest tests
 ```
 
 ## Install the package in editable mode using pip from the source root folder:
@@ -146,8 +180,3 @@ run them with the Python where the CLI is installed:
 ```shell
   pip install -e .
 ```
-
-## Change the version
-
-> Edit the `__version__.py` file and change the variable `__version__`.
-Then [build and publish](build-and-publish)

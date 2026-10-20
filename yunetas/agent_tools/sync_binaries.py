@@ -80,6 +80,9 @@ broader side effects. It prints the reminder instead, pointing at
 ``yunetas upgrade-yunos`` (the wrapper that bundles those steps with a
 rollback snap).
 See yunos/c/yuno_agent/YUNO_LIFECYCLE.md §6.5/§6.6.
+
+The exit code is 1 when a push, or the restart of a yuno it stopped, failed:
+``yunetas sync`` reads it to hold the configs back.
 """
 
 import argparse
@@ -773,10 +776,13 @@ def deploy_update_with_restart(ycommand, url, jwt, role, path, local_version, dr
 
     # Restore prior state even if the update failed, so we never leave a yuno
     # we stopped lying dead (it comes back on the old binary in that case).
+    # A restore that fails is a failure of the role too: the yuno is down.
     if was_running:
-        run_ycmd(ycommand, url, jwt, "run-yuno yuno_role=%s play=0" % role, dry_run)
+        restored, _ = run_ycmd(ycommand, url, jwt, "run-yuno yuno_role=%s play=0" % role, dry_run)
+        ok = ok and restored
         if was_playing:
-            run_ycmd(ycommand, url, jwt, "play-yuno yuno_role=%s" % role, dry_run)
+            restored, _ = run_ycmd(ycommand, url, jwt, "play-yuno yuno_role=%s" % role, dry_run)
+            ok = ok and restored
 
     return ok
 
@@ -818,10 +824,13 @@ def main():
     auth.add_argument("-T", "--token-endpoint", default=None,
                       help="explicit token endpoint (skips discovery).")
     auth.add_argument("-Z", "--client-id", default=None, help="OAuth2 client_id.")
-    auth.add_argument("--client-secret", default=None,
-                      help="OAuth2 client_secret (confidential client only).")
+    auth.add_argument("--client-secret", default=os.environ.get("YUNETA_OAUTH_CLIENT_SECRET"),
+                      help="OAuth2 client_secret (confidential client only; "
+                           "default: $YUNETA_OAUTH_CLIENT_SECRET).")
     auth.add_argument("-x", "--user-id", default=None, help="OAuth2 username.")
-    auth.add_argument("-X", "--user-passw", default=None, help="OAuth2 password.")
+    auth.add_argument("-X", "--user-passw", default=os.environ.get("YUNETA_OAUTH_PASSW"),
+                      help="OAuth2 password (default: $YUNETA_OAUTH_PASSW, which "
+                           "keeps it out of the process list).")
     auth.add_argument("-j", "--jwt", default=None,
                       help="reuse this jwt directly (skip the login).")
 
@@ -965,6 +974,11 @@ def main():
         print(dim("   ycommand -c 'find-new-yunos create=1'"))
         print(dim("   ycommand -c 'deactivate-snap'      (node-wide bounce; shoot-snap first to keep a rollback)"))
 
+    # The exit code is what `yunetas sync` reads to hold the configs back.
+    if fail:
+        return 1
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

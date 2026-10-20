@@ -94,6 +94,16 @@ A yuno that is not running is left stopped (it reads the new config on its next
 start). NEW configs have no agent record yet (typically a yuno not created here)
 and are never auto-restarted — their ids are printed as a reminder.
 
+Only an UPDATE (same version, new content) is applied by a restart. A yuno runs
+the config version of its own row (``name_version``, read by
+``get_yuno_config()`` in ``c_agent.c``), and a BUMP (``create-config`` of a new
+version) moves that row only with ``find-new-yunos create=1`` +
+``deactivate-snap``: ``yunetas upgrade-yunos``. So a BUMP is never restarted;
+the tool prints that hint instead.
+
+The exit code is 1 when a push or a restart failed, so ``yunetas sync`` and a
+script can tell.
+
 The affected yunos are restarted in ascending ``start_priority`` order (read
 from the agent's ``*list-yunos`` record), so infrastructure comes back before
 its dependents instead of in alphabetical id order.
@@ -673,16 +683,48 @@ def restart_yuno(ycommand, url, jwt, yid, was_running, was_playing, dry_run):
     Bounce one yuno by id so it re-reads its config, restoring prior run/play
     state. A yuno that was not running is left stopped — it reads the new config
     on its next start. kill-yuno is orderly (SIGQUIT), so the gbmem audit runs.
+    Returns False when a step failed: the yuno may be down.
     """
     if not was_running:
         print(dim("   %s not running — left stopped (reads new config on next start)" % yid))
-        return
-    run_ycmd(ycommand, url, jwt, "kill-yuno id=%s" % yid, dry_run)
+        return True
+    ok, _ = run_ycmd(ycommand, url, jwt, "kill-yuno id=%s" % yid, dry_run)
     if not dry_run and not wait_until_stopped(ycommand, url, jwt, yid):
         print(yellow("   ! %s still running after kill" % yid))
-    run_ycmd(ycommand, url, jwt, "run-yuno id=%s play=0" % yid, dry_run)
+    restored, _ = run_ycmd(ycommand, url, jwt, "run-yuno id=%s play=0" % yid, dry_run)
+    ok = ok and restored
     if was_playing:
-        run_ycmd(ycommand, url, jwt, "play-yuno id=%s" % yid, dry_run)
+        restored, _ = run_ycmd(ycommand, url, jwt, "play-yuno id=%s" % yid, dry_run)
+        ok = ok and restored
+    return ok
+
+
+def sort_pushed_configs(pushed):
+    """
+    Split the configs pushed with success by what applies them. Returns
+    (restart_ids, promote_ids, new_ids):
+
+      * restart_ids  yuno ids using an UPDATEd config (same version, new
+                     content): a restart makes them read it.
+      * promote_ids  config ids of a BUMP (create-config of a new version).
+                     A yuno runs the config version of its OWN row
+                     (name_version, see get_yuno_config() in c_agent.c), which
+                     only find-new-yunos create=1 + deactivate-snap move:
+                     restarting it would bring it back on the old version.
+      * new_ids      config ids with no agent record yet (NEW).
+    """
+    restart_ids = set()
+    promote_ids = set()
+    new_ids = set()
+    for r in pushed:
+        if r["kind"] == "update":
+            for y in r["agent"].get("yunos", []) or []:
+                restart_ids.add(str(y))
+        elif r["kind"] == "bump":
+            promote_ids.add(r["id"])
+        else:
+            new_ids.add(r["id"])
+    return restart_ids, promote_ids, new_ids
 
 
 def ask(prompt):
@@ -711,10 +753,12 @@ def main():
     ap.add_argument("--show-uptodate", action="store_true",
                     help="also list configs already in sync and agent-only ones.")
     ap.add_argument("-r", "--restart", action="store_true",
-                    help="after pushing a changed config, also restart the using "
-                         "yunos to apply it (default: push only + print a "
-                         "reminder). Installing a config never needs a kill; the "
-                         "restart is optional.")
+                    help="after pushing a changed config of the SAME version "
+                         "(UPDATE), also restart the using yunos to apply it "
+                         "(default: push only + print a reminder). Installing a "
+                         "config never needs a kill; the restart is optional. A "
+                         "new version (BUMP) is applied by 'yunetas upgrade-yunos', "
+                         "never by a restart.")
     auth = ap.add_argument_group(
         "OAuth2 (remote wss:// agent; logs in ONCE, reuses the token via -j)")
     auth.add_argument("-I", "--issuer", default=None,
@@ -723,10 +767,13 @@ def main():
     auth.add_argument("-T", "--token-endpoint", default=None,
                       help="explicit token endpoint (skips discovery).")
     auth.add_argument("-Z", "--client-id", default=None, help="OAuth2 client_id.")
-    auth.add_argument("--client-secret", default=None,
-                      help="OAuth2 client_secret (confidential client only).")
+    auth.add_argument("--client-secret", default=os.environ.get("YUNETA_OAUTH_CLIENT_SECRET"),
+                      help="OAuth2 client_secret (confidential client only; "
+                           "default: $YUNETA_OAUTH_CLIENT_SECRET).")
     auth.add_argument("-x", "--user-id", default=None, help="OAuth2 username.")
-    auth.add_argument("-X", "--user-passw", default=None, help="OAuth2 password.")
+    auth.add_argument("-X", "--user-passw", default=os.environ.get("YUNETA_OAUTH_PASSW"),
+                      help="OAuth2 password (default: $YUNETA_OAUTH_PASSW, which "
+                           "keeps it out of the process list).")
     auth.add_argument("-j", "--jwt", default=None,
                       help="reuse this jwt directly (skip the login).")
 
@@ -766,14 +813,15 @@ def main():
 
     if not local:
         print(yellow("\nNo deployable *.json configs found in %s." % config_dir))
-        return
+        return 0
 
-    _sync_body(args, ycommand, jwt, local, agent, instances)
+    return _sync_body(args, ycommand, jwt, local, agent, instances)
 
 
 def _sync_body(args, ycommand, jwt, local, agent, instances):
     """
-    Compare the local configs with the agent's, confirm, and push.
+    Compare the local configs with the agent's, confirm, and push. Returns
+    the exit code: 1 when a push or a restart failed.
     """
 
     rows = classify(local, agent, instances)
@@ -784,12 +832,13 @@ def _sync_body(args, ycommand, jwt, local, agent, instances):
         print(yellow(
             "%d config(s) already installed but NOT primary (pending "
             "promote)." % len(installed)))
+        print(dim("Promote the staged version(s) with:  yunetas upgrade-yunos"))
 
     candidates = [r for r in rows if r["action"]]
     if not candidates:
         if not installed:
             print(green("Everything is up to date. Nothing to do."))
-        return
+        return 0
 
     # Summary line.
     by_kind = {}
@@ -814,7 +863,7 @@ def _sync_body(args, ycommand, jwt, local, agent, instances):
         mode = ask("\nApply [a]ll, [s]elect one by one, or [q]uit? ")
         if mode in ("q", "quit", ""):
             print("Cancelled - no changes made.")
-            return
+            return 0
         if mode in ("a", "all"):
             chosen = candidates
         else:
@@ -827,14 +876,14 @@ def _sync_body(args, ycommand, jwt, local, agent, instances):
 
     if not chosen:
         print("Nothing selected.")
-        return
+        return 0
 
     if not args.all and not args.dry_run:
         confirm = ask("\nAbout to run %d command(s) against the agent. Proceed? [y/N] "
                       % len(chosen))
         if confirm not in ("y", "yes"):
             print("Cancelled - no changes made.")
-            return
+            return 0
 
     print()
     ok, fail = 0, 0
@@ -848,18 +897,12 @@ def _sync_body(args, ycommand, jwt, local, agent, instances):
     print()
     print(bold("Done: %s, %s." % (green("%d ok" % ok), red("%d failed" % fail) if fail else dim("0 failed"))))
 
-    # A yuno reads its config only at (re)start. Restart the yunos that use a
-    # successfully pushed config so the change takes effect — scoped by yuno id,
-    # preserving prior run/play state. NEW configs have no agent record yet
-    # (typically a yuno not created here) -> reminder only.
-    affected = set()
-    new_only = set()
-    for r in pushed:
-        if r["agent"]:
-            for y in r["agent"].get("yunos", []) or []:
-                affected.add(str(y))
-        else:
-            new_only.add(r["id"])
+    # A yuno reads its config only at (re)start, and only the version of its
+    # own row: an UPDATE is applied by a restart, a BUMP only by promoting it.
+    # Restarts are scoped by yuno id and keep the prior run/play state. NEW
+    # configs have no agent record yet (typically a yuno not created here)
+    # -> reminder only.
+    affected, promote, new_only = sort_pushed_configs(pushed)
 
     if affected and args.restart:
         print(dim("\nRestarting affected yuno(s) to apply the new config(s)..."))
@@ -876,20 +919,33 @@ def _sync_body(args, ycommand, jwt, local, agent, instances):
 
         for yid in sorted(affected, key=lambda y: (_start_priority(y), y)):
             st = states.get(yid, {})
-            restart_yuno(
+            if not restart_yuno(
                 ycommand, args.url, jwt, yid,
                 bool(st.get("yuno_running")), bool(st.get("yuno_playing")),
                 args.dry_run,
-            )
+            ):
+                print(red("   ! %s: the restart failed, the yuno may be down" % yid))
+                fail += 1
     elif affected:
         print(dim("\nNote: a yuno reads its config when it (re)starts. For the change to take"))
         print(dim("effect, restart the yunos that use it: kill-yuno then run-yuno."))
         print(dim("   affected yuno id(s): %s" % ", ".join(sorted(affected))))
 
+    if promote:
+        print(dim("\nNote: create-config stored a NEW version of %s." % ", ".join(sorted(promote))))
+        print(dim("A yuno runs the config version of its own row, so a restart changes nothing."))
+        print(dim("Promote it with:"))
+        print(dim("   yunetas upgrade-yunos              (shoot-snap -> find-new-yunos -> deactivate-snap)"))
+
     if new_only:
         print(dim("\nNote: NEW config(s) %s — start their yuno(s) when ready." %
                   ", ".join(sorted(new_only))))
 
+    # The exit code is what `yunetas sync` and scripts read.
+    if fail:
+        return 1
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

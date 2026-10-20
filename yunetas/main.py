@@ -2,7 +2,7 @@ import typer
 from rich import print
 from rich.console import Console
 from .__version__ import __version__
-from .my_venv import app_venv
+from .agent_tools.sync_binaries import obtain_jwt
 from typing import Optional, List
 from pathlib import Path
 import json
@@ -14,6 +14,7 @@ import subprocess
 import shutil
 import textwrap
 import time
+import types
 import atexit
 from datetime import datetime
 
@@ -146,7 +147,6 @@ def default_jobs():
 
 # Create the app.
 app = typer.Typer(help="TUI for yunetas SDK")
-app.add_typer(app_venv, name="venv")
 
 console = Console()
 
@@ -556,8 +556,9 @@ def sync_binaries(
 
     Targets the local agent by default; '--node <name>' resolves a registered
     node's url and OAuth2 identity (and opens its SSH tunnel when that is how
-    it is reached). Wrapper over tools/agent/sync_binaries.py: every other
-    argument is forwarded (e.g. -n dry-run, -a all, --no-restart).
+    it is reached). Runs the bundled sync_binaries tool: every other argument
+    is forwarded (e.g. -n dry-run, -a all, --no-restart). Exits 1 when a push
+    failed.
     """
     with resolve_node_connection(node, None, tunnel) as conn:
         set_agent_flags(conn)
@@ -594,17 +595,19 @@ def sync_configs(
 ):
     """
     Sync yuno configs of each registered project (yunos/batches/<host>/) against
-    the local agent.
+    an agent (the local one by default).
 
     Without --host, each project's batches/<host>/ directories are matched
-    against the realm_ids the local agent manages ('*list-realms'): every dir
-    whose name is a (non-disabled) realm_id is synced automatically. Since a
-    batches dir is named after its realm_id (the deploy FQDN), a node running
-    several realms syncs all the relevant ones in one go. If the agent can't be
+    against the realm_ids the agent manages ('*list-realms'): every dir whose
+    name is a (non-disabled) realm_id is synced automatically. Since a batches
+    dir is named after its realm_id (the deploy FQDN), a node running several
+    realms syncs all the relevant ones in one go. If the agent can't be
     reached, it falls back to the legacy single-hostname guess.
 
-    Wrapper over tools/agent/sync_configs.py: unknown arguments are forwarded
-    (e.g. -n dry-run, -a all, -r restart, OAuth2 options).
+    Runs the bundled sync_configs tool: unknown arguments are forwarded (e.g.
+    -n dry-run, -a all, -r restart, OAuth2 options). -r restarts the yunos of
+    a changed config of the SAME version; a new version (BUMP) is applied by
+    'upgrade-yunos'.
     """
     _, selected_projects = resolve_selection(project, False)
     if not selected_projects:
@@ -652,7 +655,7 @@ def sync(
     ),
 ):
     """
-    Push binaries AND configs together against the local agent.
+    Push binaries AND configs together against an agent (the local one by default).
 
     A binary bump must never ship without its matching config bump: a new
     runtime against a stale config is exactly what broke OIDC under
@@ -696,6 +699,37 @@ def sync(
     if synced == 0:
         print("[yellow]Binaries synced, but no matching batches/<host>/ directory to sync configs from.[/yellow]")
     raise typer.Exit(code=exit_code)
+
+
+@app.command(
+    name="set-start-priorities",
+    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+)
+def set_start_priorities(
+    ctx: typer.Context,
+    node: Optional[str] = typer.Option(
+        None, "--node", "-N", help="Registered node to act on (see 'yunetas list-nodes')."
+    ),
+    tunnel: bool = typer.Option(
+        False, "--tunnel", help="Force the node's SSH tunnel even if it also has a url."
+    ),
+):
+    """
+    Assign each managed yuno's start_priority (its launch tier, 0..9) by role:
+    1 utilities (logcenter, emailsender, auth_bff), 4 gates (gate_*), 7 dba
+    (db_*). The agent launches yunos in ascending start_priority and stops
+    them in descending order.
+
+    Targets the local agent by default; '--node <name>' resolves a registered
+    node. Runs the bundled set_start_priorities tool: every other argument is
+    forwarded (e.g. -n dry-run, -a apply without asking, --rule
+    'PATTERN=PRIO', --show-all). Exits 1 when a write failed.
+    """
+    with resolve_node_connection(node, None, tunnel) as conn:
+        set_agent_flags(conn)
+        extra = conn.args() if node else []
+        ret = run_agent_tool("set_start_priorities.py", list(ctx.args) + extra)
+    raise typer.Exit(code=ret)
 
 
 #--------------------------------------------------#
@@ -756,7 +790,7 @@ def upgrade_yunos(
     ),
 ):
     """
-    Promote freshly installed binaries/configs to primary on the local agent.
+    Promote freshly installed binaries/configs to primary on an agent (the local one by default).
 
     Run this after 'sync-binaries' / 'sync-configs' have pushed the new
     artifacts. The flow is:
@@ -1021,8 +1055,8 @@ EXTENDED_HELP_GROUPS = [
     ("Build", ["init", "build", "clean", "test"]),
     ("Projects", ["register-project", "unregister-project", "list-projects"]),
     ("Deploy targets", ["register-node", "unregister-node", "list-nodes"]),
-    ("Deploy", ["sync", "sync-binaries", "sync-configs", "upgrade-yunos"]),
-    ("Misc", ["venv", "version"]),
+    ("Deploy", ["sync", "sync-binaries", "sync-configs", "upgrade-yunos", "set-start-priorities"]),
+    ("Misc", ["version"]),
 ]
 
 
@@ -1242,6 +1276,8 @@ class NodeConnection:
         self.force_tunnel = force_tunnel
         self.proc = None
         self.url = None
+        self.jwt = None
+        self.jwt_asked = False
 
     def __enter__(self):
         node = self.node
@@ -1287,41 +1323,101 @@ class NodeConnection:
             time.sleep(0.2)
         return False
 
+    def tls_args(self):
+        """The TLS flags of a wss:// agent, from the registry."""
+        out = []
+        for flag, key in (
+            ("--ssl-trusted-certificate", "ssl_trusted_certificate"),
+            ("--ssl-server-name", "ssl_server_name"),
+        ):
+            value = self.node.get(key)
+            if value:
+                out += [flag, value]
+        return out
+
+    def identity_args(self):
+        """The OAuth2 identity flags of a wss:// agent, from the registry."""
+        out = []
+        for flag, key in (
+            ("-I", "issuer"),
+            ("-Z", "client_id"),
+            ("-x", "user_id"),
+        ):
+            value = self.node.get(key)
+            if value:
+                out += [flag, value]
+        return out
+
     def args(self):
         """
-        The flags to forward to sync_binaries.py / sync_configs.py.
+        The flags to forward to the agent tools (sync_binaries, sync_configs,
+        set_start_priorities).
 
         Credentials are read from the environment, never from the registry.
-        Only the OAuth2 identity (issuer/client/user) is stored.
+        Only the OAuth2 identity (issuer/client/user) is stored. The password
+        and the client secret are NOT put on the tool's command line, where
+        any local user reads them in `ps` for the whole run: the tool inherits
+        them in $YUNETA_OAUTH_PASSW / $YUNETA_OAUTH_CLIENT_SECRET and logs in
+        once with them.
         """
         out = ["-u", self.url]
 
         # A tunnelled ws:// agent needs no OAuth2: the SSH session already
         # authenticated us, and the agent trusts its own loopback.
         if self.url.startswith("wss://"):
-            node = self.node
-            for flag, key in (
-                ("-I", "issuer"),
-                ("-Z", "client_id"),
-                ("-x", "user_id"),
-                ("--ssl-trusted-certificate", "ssl_trusted_certificate"),
-                ("--ssl-server-name", "ssl_server_name"),
-            ):
-                value = node.get(key)
-                if value:
-                    out += [flag, value]
-
+            out += self.identity_args() + self.tls_args()
             jwt = os.environ.get(ENV_OAUTH_JWT)
             if jwt:
                 out += ["-j", jwt]
-            else:
-                passw = os.environ.get(ENV_OAUTH_PASSW)
-                if passw:
-                    out += ["-X", passw]
-                secret = os.environ.get(ENV_OAUTH_CLIENT_SECRET)
-                if secret:
-                    out += ["--client-secret", secret]
 
+        return out
+
+    def get_jwt(self):
+        """
+        The jwt for the ycommand calls of this CLI: $YUNETA_OAUTH_JWT, or one
+        password grant with the registry identity and $YUNETA_OAUTH_PASSW,
+        asked once and reused. None when there is nothing to log in with.
+        """
+        if self.jwt_asked:
+            return self.jwt
+        self.jwt_asked = True
+
+        self.jwt = os.environ.get(ENV_OAUTH_JWT) or None
+        if self.jwt:
+            return self.jwt
+
+        node = self.node
+        passw = os.environ.get(ENV_OAUTH_PASSW)
+        if passw and node.get("user_id") and node.get("issuer"):
+            # Exits 2 with the reason when the login fails, as the tools do.
+            self.jwt = obtain_jwt(types.SimpleNamespace(
+                jwt=None,
+                user_id=node["user_id"],
+                user_passw=passw,
+                issuer=node["issuer"],
+                token_endpoint=None,
+                client_id=node.get("client_id"),
+                client_secret=os.environ.get(ENV_OAUTH_CLIENT_SECRET),
+            ))
+        return self.jwt
+
+    def ycommand_args(self):
+        """
+        The connection flags of one ycommand call made by this CLI.
+
+        With a jwt, only the url, the jwt and the TLS flags: ycommand runs its
+        own password grant whenever it is given an issuer and a user id, even
+        next to -j, so the identity flags must not travel with the jwt. And it
+        knows no --client-secret: a confidential client is handled by the
+        token request in get_jwt().
+        """
+        out = ["-u", self.url]
+        if self.url.startswith("wss://"):
+            jwt = self.get_jwt()
+            if jwt:
+                out += ["-j", jwt] + self.tls_args()
+            else:
+                out += self.identity_args() + self.tls_args()
         return out
 
     def __exit__(self, exc_type, exc, tb):
@@ -1335,23 +1431,24 @@ class NodeConnection:
         return False
 
 
-#   Flags of the node in play: url plus the OAuth2 identity and the TLS of
-#   its agent. Every ycommand call of this CLI has to carry them, or a wss://
-#   node answers nothing and ycommand retries for ever -- with the terminal's
-#   stdin, which drops the operator inside an interactive session.
-AGENT_FLAGS = []
+#   The node connection in play. Every ycommand call of this CLI has to carry
+#   its url, credential and TLS flags, or a wss:// node answers nothing and
+#   ycommand retries for ever -- with the terminal's stdin, which drops the
+#   operator inside an interactive session. Kept as the connection, not as a
+#   list of flags, so the login happens only when a call needs it.
+AGENT_CONN = None
 
 
 def set_agent_flags(conn):
-    """Record the flags of a resolved node connection."""
-    global AGENT_FLAGS
-    AGENT_FLAGS = list(conn.args()) if conn is not None else []
+    """Record the resolved node connection."""
+    global AGENT_CONN
+    AGENT_CONN = conn
 
 
 def ycmd_conn_flags(url):
     """Connection flags for one ycommand call: the node's, or a bare url."""
-    if AGENT_FLAGS:
-        return list(AGENT_FLAGS)
+    if AGENT_CONN is not None:
+        return AGENT_CONN.ycommand_args()
     return ["-u", url] if url else []
 
 
