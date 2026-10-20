@@ -5,13 +5,22 @@
 #   object) must be refused with a clear error, not passed to ycommand's argv,
 #   where Python raises TypeError.
 #
+#   The login lives in agent_tools.common since 0.23.0 (each tool had its own
+#   copy); MODULES checks that every tool and the CLI use that one.
+#
 import types
 
 import pytest
 
-from yunetas.agent_tools import set_start_priorities, sync_binaries, sync_configs
+import yunetas.main as main
+from yunetas.agent_tools import common, set_start_priorities, sync_binaries, sync_configs
 
-MODULES = [sync_configs, sync_binaries, set_start_priorities]
+MODULES = [common]
+
+
+def test_one_login_for_every_tool():
+    for module in (sync_configs, sync_binaries, set_start_priorities, main):
+        assert module.obtain_jwt is common.obtain_jwt
 
 
 def make_args():

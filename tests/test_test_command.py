@@ -24,6 +24,7 @@ def calls(monkeypatch, tmp_path):
     monkeypatch.setattr(m, "ensure_ext_libs_installed", lambda: None)
     monkeypatch.setattr(m, "setup_yuneta_environment", lambda *a, **k: None)
     monkeypatch.setattr(m, "find_yuno_role_collisions", lambda *a, **k: {})
+    monkeypatch.setattr(m, "report_stale_agents", lambda: None)
     monkeypatch.setattr(m, "load_registered_projects", lambda: [])
     monkeypatch.setattr(m, "YUNETAS_BASE", str(tmp_path))
     return seen, tmp_path

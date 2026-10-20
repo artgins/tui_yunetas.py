@@ -112,75 +112,20 @@ its dependents instead of in alphabetical id order.
 import argparse
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
 
-# ----------------------------------------------------------------------------
-#   ANSI colours (only when stdout is a tty)
-# ----------------------------------------------------------------------------
-_TTY = sys.stdout.isatty()
-
-
-def c(code, s):
-    if not _TTY:
-        return s
-    return "\033[%sm%s\033[0m" % (code, s)
-
-
-def bold(s):
-    return c("1", s)
-
-
-def green(s):
-    return c("32", s)
-
-
-def yellow(s):
-    return c("33", s)
-
-
-def red(s):
-    return c("31", s)
-
-
-def cyan(s):
-    return c("36", s)
-
-
-def dim(s):
-    return c("90", s)
+from yunetas.agent_tools.common import (
+    add_agent_arguments, ask, bold, cmp_versions, cyan, dim, green,
+    obtain_jwt, parse_leading_json, red, set_tls_flags, ycmd_base, yellow,
+)
 
 
 # ----------------------------------------------------------------------------
 #   JSON helpers
 # ----------------------------------------------------------------------------
-_ANSI_RE = re.compile(r"\033\[[0-9;]*m")
-
-
-def parse_leading_json(text):
-    """
-    ycommand wraps the JSON payload with a leading blank line and a trailing
-    coloured footer (the command name). Strip ANSI, locate the first '[' or '{'
-    and decode just that value, ignoring whatever trails it.
-    """
-    clean = _ANSI_RE.sub("", text or "")
-    start = None
-    for i, ch in enumerate(clean):
-        if ch in "[{":
-            start = i
-            break
-    if start is None:
-        raise json.JSONDecodeError("no JSON value found", clean, 0)
-    obj, _ = json.JSONDecoder().raw_decode(clean[start:])
-    return obj
-
-
 def strip_jsonc(text):
     """
     Remove ``//`` line comments and ``/* */`` block comments that live OUTSIDE
@@ -232,135 +177,6 @@ def load_jsonc(path):
         return json.loads(text)
     except json.JSONDecodeError:
         return json.loads(strip_jsonc(text))
-
-
-def version_tuple(v):
-    """
-    Turn '7.4.5' or '2' into a comparable tuple of ints. Non-numeric chunks
-    fall back to 0 so a malformed version never crashes the compare.
-    """
-    parts = []
-    for chunk in str(v).split("."):
-        m = re.match(r"\d+", chunk)
-        parts.append(int(m.group(0)) if m else 0)
-    return tuple(parts)
-
-
-def cmp_versions(a, b):
-    ta, tb = version_tuple(a), version_tuple(b)
-    if ta < tb:
-        return -1
-    if ta > tb:
-        return 1
-    return 0
-
-
-# ----------------------------------------------------------------------------
-#   OAuth2 — log in ONCE, reuse the token on every ycommand call
-# ----------------------------------------------------------------------------
-#   ycommand reads its credentials only from argp and does NOT cache a token
-#   between one-shot `-c` invocations, so passing -x/-X would re-run the
-#   password grant on every call. Instead we log in once here (Keycloak
-#   password grant), then thread the resulting jwt through `-j` to every
-#   invocation. This is what lets these scripts drive a REMOTE wss:// agent
-#   with SSH disabled. Stdlib only — no external deps.
-def _http_json(url, data=None, timeout=30):
-    """GET (data=None) or form-urlencoded POST, returning parsed JSON."""
-    body = None
-    headers = {}
-    if data is not None:
-        body = urllib.parse.urlencode(data).encode("utf-8")
-        headers["Content-Type"] = "application/x-www-form-urlencoded"
-    req = urllib.request.Request(url, data=body, headers=headers)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode("utf-8"))
-
-
-def discover_token_endpoint(issuer, timeout=30):
-    """Read token_endpoint from the issuer's OIDC discovery document."""
-    doc = _http_json(issuer.rstrip("/") + "/.well-known/openid-configuration",
-                     timeout=timeout)
-    ep = doc.get("token_endpoint") if isinstance(doc, dict) else None
-    if not isinstance(ep, str) or not ep:
-        raise RuntimeError("OIDC discovery document has no token_endpoint")
-    return ep
-
-
-def obtain_jwt(args):
-    """
-    Return one jwt to reuse on every ycommand call, or None for a local/
-    unauthenticated run:
-      * --jwt given                                 -> used verbatim.
-      * user-id + passw + (issuer | token-endpoint) -> password grant, once.
-      * otherwise                                   -> None (local ws:// needs none).
-    """
-    if args.jwt:
-        return args.jwt
-    if not (args.user_id and args.user_passw and (args.issuer or args.token_endpoint)):
-        return None
-    try:
-        token_endpoint = args.token_endpoint or discover_token_endpoint(args.issuer)
-    except Exception as e:
-        print(red("ERROR: OIDC discovery failed: %s" % e))
-        sys.exit(2)
-    form = {
-        "grant_type": "password",
-        "client_id": args.client_id or "",
-        "username": args.user_id,
-        "password": args.user_passw,
-    }
-    if args.client_secret:
-        form["client_secret"] = args.client_secret
-    print(dim("authenticating once at %s ..." % token_endpoint))
-    try:
-        tok = _http_json(token_endpoint, data=form)
-    except urllib.error.HTTPError as e:
-        detail = ""
-        try:
-            detail = e.read().decode("utf-8", "replace")
-        except Exception:
-            pass
-        print(red("ERROR: OAuth2 login failed (HTTP %s): %s" % (e.code, detail or e.reason)))
-        sys.exit(2)
-    except Exception as e:
-        print(red("ERROR: OAuth2 login failed: %s" % e))
-        sys.exit(2)
-    jwt = tok.get("access_token") if isinstance(tok, dict) else None
-    if not isinstance(jwt, str) or not jwt:
-        print(red("ERROR: token endpoint returned no access_token (or not a string)."))
-        sys.exit(2)
-    return jwt
-
-
-#   TLS flags for a wss:// agent, set once in main() and used by every call.
-#   The agent serves one long-life certificate of its own on every node, so
-#   the name never matches the host dialed: --ssl-server-name says which name
-#   to check the certificate against, and the chain is still validated.
-TLS_FLAGS = []
-
-
-def ycmd_base(ycommand, url, jwt):
-    """Base ycommand argv: binary + optional -u url + optional -j jwt + TLS."""
-    cmd = [ycommand]
-    if url:
-        cmd += ["-u", url]
-    if jwt:
-        cmd += ["-j", jwt]
-    cmd += TLS_FLAGS
-    return cmd
-
-
-def set_tls_flags(args):
-    """Record the TLS flags of the run, from the parsed arguments."""
-    global TLS_FLAGS
-    flags = []
-    trusted = getattr(args, "ssl_trusted_certificate", None)
-    if trusted:
-        flags += ["--ssl-trusted-certificate", trusted]
-    server_name = getattr(args, "ssl_server_name", None)
-    if server_name:
-        flags += ["--ssl-server-name", server_name]
-    TLS_FLAGS = flags
 
 
 # ----------------------------------------------------------------------------
@@ -658,7 +474,7 @@ def yuno_states_by_id(ycommand, url, jwt):
     return out
 
 
-def wait_until_stopped(ycommand, url, jwt, yid, timeout_s=15.0, poll_s=0.3):
+def wait_until_stopped(ycommand, url, jwt, yid, timeout_s=60.0, poll_s=0.3):
     """
     Poll '*list-yunos id=<yid>' until the yuno is no longer running, so a later
     run-yuno relaunches a fully-exited process. Returns True if it stopped.
@@ -727,13 +543,6 @@ def sort_pushed_configs(pushed):
     return restart_ids, promote_ids, new_ids
 
 
-def ask(prompt):
-    try:
-        return input(prompt).strip().lower()
-    except EOFError:
-        return "q"
-
-
 # ----------------------------------------------------------------------------
 #   Main
 # ----------------------------------------------------------------------------
@@ -742,10 +551,7 @@ def main():
         description="Compare the configs in a directory with the agent and push updates.")
     ap.add_argument("config_dir", nargs="?", default=".",
                     help="directory holding the *.json configs (default: current dir).")
-    ap.add_argument("-u", "--url", default=None,
-                    help="ycommand url (default: ws://127.0.0.1:1991).")
-    ap.add_argument("--ycommand", default=None,
-                    help="path to ycommand (default: search PATH).")
+    add_agent_arguments(ap)
     ap.add_argument("-a", "--all", action="store_true",
                     help="apply every candidate without asking per-config.")
     ap.add_argument("-n", "--dry-run", action="store_true",
@@ -759,30 +565,6 @@ def main():
                          "config never needs a kill; the restart is optional. A "
                          "new version (BUMP) is applied by 'yunetas upgrade-yunos', "
                          "never by a restart.")
-    auth = ap.add_argument_group(
-        "OAuth2 (remote wss:// agent; logs in ONCE, reuses the token via -j)")
-    auth.add_argument("-I", "--issuer", default=None,
-                      help="OIDC issuer for discovery, e.g. "
-                           "https://auth.artgins.com/realms/artgins")
-    auth.add_argument("-T", "--token-endpoint", default=None,
-                      help="explicit token endpoint (skips discovery).")
-    auth.add_argument("-Z", "--client-id", default=None, help="OAuth2 client_id.")
-    auth.add_argument("--client-secret", default=os.environ.get("YUNETA_OAUTH_CLIENT_SECRET"),
-                      help="OAuth2 client_secret (confidential client only; "
-                           "default: $YUNETA_OAUTH_CLIENT_SECRET).")
-    auth.add_argument("-x", "--user-id", default=None, help="OAuth2 username.")
-    auth.add_argument("-X", "--user-passw", default=os.environ.get("YUNETA_OAUTH_PASSW"),
-                      help="OAuth2 password (default: $YUNETA_OAUTH_PASSW, which "
-                           "keeps it out of the process list).")
-    auth.add_argument("-j", "--jwt", default=None,
-                      help="reuse this jwt directly (skip the login).")
-
-    tls = ap.add_argument_group("TLS (wss:// agent)")
-    tls.add_argument("--ssl-trusted-certificate", default=None,
-                     help="PEM of the CA that signs the agent certificate.")
-    tls.add_argument("--ssl-server-name", default=None,
-                     help="name to check the agent certificate against "
-                          "(default: the host of the url).")
     args = ap.parse_args()
     set_tls_flags(args)
 

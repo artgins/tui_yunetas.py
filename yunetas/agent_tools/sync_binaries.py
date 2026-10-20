@@ -44,7 +44,10 @@ embedded build datetime (``date``, the C ``__DATE__ " " __TIME__``, reported by
 both ``--print-role`` and ``*list-binaries``).
 
 Then it shows the candidates, asks what to apply, and runs the corresponding
-``install-binary`` / ``update-binary`` for each chosen role.
+``install-binary`` / ``update-binary`` for each chosen role. ``--role R``
+(repeatable) keeps only those roles: a change to one yuno does not drag in
+every other binary that differs (a local SDK newer than the node's makes
+most of them differ by a few bytes).
 
 For a REBUILD (``update-binary``) the agent overwrites the slot whose version
 equals the uploaded binary's. The copy fails with text-file-busy only if a LIVE
@@ -93,92 +96,17 @@ import shutil
 import subprocess
 import sys
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
 from datetime import datetime
 
-# ----------------------------------------------------------------------------
-#   ANSI colours (only when stdout is a tty)
-# ----------------------------------------------------------------------------
-_TTY = sys.stdout.isatty()
-
-
-def c(code, s):
-    if not _TTY:
-        return s
-    return "\033[%sm%s\033[0m" % (code, s)
-
-
-def bold(s):
-    return c("1", s)
-
-
-def green(s):
-    return c("32", s)
-
-
-def yellow(s):
-    return c("33", s)
-
-
-def red(s):
-    return c("31", s)
-
-
-def cyan(s):
-    return c("36", s)
-
-
-def dim(s):
-    return c("90", s)
+from yunetas.agent_tools.common import (
+    add_agent_arguments, ask, bold, cmp_versions, cyan, dim, green,
+    obtain_jwt, parse_leading_json, red, set_tls_flags, ycmd_base, yellow,
+)
 
 
 # ----------------------------------------------------------------------------
-#   Version comparison
+#   Build dates
 # ----------------------------------------------------------------------------
-_ANSI_RE = re.compile(r"\033\[[0-9;]*m")
-
-
-def parse_leading_json(text):
-    """
-    ycommand wraps the JSON payload with a leading blank line and a trailing
-    coloured footer (the command name). Strip ANSI, locate the first '[' or '{'
-    and decode just that value, ignoring whatever trails it.
-    """
-    clean = _ANSI_RE.sub("", text or "")
-    start = None
-    for i, ch in enumerate(clean):
-        if ch in "[{":
-            start = i
-            break
-    if start is None:
-        raise json.JSONDecodeError("no JSON value found", clean, 0)
-    obj, _ = json.JSONDecoder().raw_decode(clean[start:])
-    return obj
-
-
-def version_tuple(v):
-    """
-    Turn '7.4.5' or '1.4.4.0' into a comparable tuple of ints. Non-numeric
-    chunks fall back to 0 so a malformed version never crashes the compare.
-    """
-    parts = []
-    for chunk in str(v).split("."):
-        m = re.match(r"\d+", chunk)
-        parts.append(int(m.group(0)) if m else 0)
-    return tuple(parts)
-
-
-def cmp_versions(a, b):
-    ta, tb = version_tuple(a), version_tuple(b)
-    if ta < tb:
-        return -1
-    if ta > tb:
-        return 1
-    return 0
-
-
 def parse_build_date(s):
     """
     Parse the build datetime embedded in a binary and reported identically by
@@ -232,114 +160,6 @@ def local_is_newer(lb, ref_time, ref_date):
     if lt is not None and ref_time is not None:
         return lt > ref_time
     return is_newer_build(lb.get("date"), ref_date)
-
-
-# ----------------------------------------------------------------------------
-#   OAuth2 — log in ONCE, reuse the token on every ycommand call
-# ----------------------------------------------------------------------------
-#   ycommand reads its credentials only from argp and does NOT cache a token
-#   between one-shot `-c` invocations, so passing -x/-X would re-run the
-#   password grant on every call. Instead we log in once here (Keycloak
-#   password grant), then thread the resulting jwt through `-j` to every
-#   invocation. This is what lets these scripts drive a REMOTE wss:// agent
-#   with SSH disabled. Stdlib only — no external deps.
-def _http_json(url, data=None, timeout=30):
-    """GET (data=None) or form-urlencoded POST, returning parsed JSON."""
-    body = None
-    headers = {}
-    if data is not None:
-        body = urllib.parse.urlencode(data).encode("utf-8")
-        headers["Content-Type"] = "application/x-www-form-urlencoded"
-    req = urllib.request.Request(url, data=body, headers=headers)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode("utf-8"))
-
-
-def discover_token_endpoint(issuer, timeout=30):
-    """Read token_endpoint from the issuer's OIDC discovery document."""
-    doc = _http_json(issuer.rstrip("/") + "/.well-known/openid-configuration",
-                     timeout=timeout)
-    ep = doc.get("token_endpoint") if isinstance(doc, dict) else None
-    if not isinstance(ep, str) or not ep:
-        raise RuntimeError("OIDC discovery document has no token_endpoint")
-    return ep
-
-
-def obtain_jwt(args):
-    """
-    Return one jwt to reuse on every ycommand call, or None for a local/
-    unauthenticated run:
-      * --jwt given                                 -> used verbatim.
-      * user-id + passw + (issuer | token-endpoint) -> password grant, once.
-      * otherwise                                   -> None (local ws:// needs none).
-    """
-    if args.jwt:
-        return args.jwt
-    if not (args.user_id and args.user_passw and (args.issuer or args.token_endpoint)):
-        return None
-    try:
-        token_endpoint = args.token_endpoint or discover_token_endpoint(args.issuer)
-    except Exception as e:
-        print(red("ERROR: OIDC discovery failed: %s" % e))
-        sys.exit(2)
-    form = {
-        "grant_type": "password",
-        "client_id": args.client_id or "",
-        "username": args.user_id,
-        "password": args.user_passw,
-    }
-    if args.client_secret:
-        form["client_secret"] = args.client_secret
-    print(dim("authenticating once at %s ..." % token_endpoint))
-    try:
-        tok = _http_json(token_endpoint, data=form)
-    except urllib.error.HTTPError as e:
-        detail = ""
-        try:
-            detail = e.read().decode("utf-8", "replace")
-        except Exception:
-            pass
-        print(red("ERROR: OAuth2 login failed (HTTP %s): %s" % (e.code, detail or e.reason)))
-        sys.exit(2)
-    except Exception as e:
-        print(red("ERROR: OAuth2 login failed: %s" % e))
-        sys.exit(2)
-    jwt = tok.get("access_token") if isinstance(tok, dict) else None
-    if not isinstance(jwt, str) or not jwt:
-        print(red("ERROR: token endpoint returned no access_token (or not a string)."))
-        sys.exit(2)
-    return jwt
-
-
-#   TLS flags for a wss:// agent, set once in main() and used by every call.
-#   The agent serves one long-life certificate of its own on every node, so
-#   the name never matches the host dialed: --ssl-server-name says which name
-#   to check the certificate against, and the chain is still validated.
-TLS_FLAGS = []
-
-
-def ycmd_base(ycommand, url, jwt):
-    """Base ycommand argv: binary + optional -u url + optional -j jwt + TLS."""
-    cmd = [ycommand]
-    if url:
-        cmd += ["-u", url]
-    if jwt:
-        cmd += ["-j", jwt]
-    cmd += TLS_FLAGS
-    return cmd
-
-
-def set_tls_flags(args):
-    """Record the TLS flags of the run, from the parsed arguments."""
-    global TLS_FLAGS
-    flags = []
-    trusted = getattr(args, "ssl_trusted_certificate", None)
-    if trusted:
-        flags += ["--ssl-trusted-certificate", trusted]
-    server_name = getattr(args, "ssl_server_name", None)
-    if server_name:
-        flags += ["--ssl-server-name", server_name]
-    TLS_FLAGS = flags
 
 
 # ----------------------------------------------------------------------------
@@ -787,25 +607,18 @@ def deploy_update_with_restart(ycommand, url, jwt, role, path, local_version, dr
     return ok
 
 
-def ask(prompt):
-    try:
-        return input(prompt).strip().lower()
-    except EOFError:
-        return "q"
-
-
 # ----------------------------------------------------------------------------
 #   Main
 # ----------------------------------------------------------------------------
 def main():
     ap = argparse.ArgumentParser(
         description="Compare outputs/yunos binaries with the agent and push updates.")
-    ap.add_argument("-u", "--url", default=None,
-                    help="ycommand url (default: ws://127.0.0.1:1991).")
-    ap.add_argument("--ycommand", default=None,
-                    help="path to ycommand (default: search PATH).")
+    add_agent_arguments(ap)
     ap.add_argument("--yunos-dir", default=None,
                     help="override outputs/yunos directory.")
+    ap.add_argument("--role", action="append", default=[], metavar="ROLE",
+                    help="only this role (repeatable): change one yuno without "
+                         "pushing every other binary that differs.")
     ap.add_argument("-a", "--all", action="store_true",
                     help="apply every candidate without asking per-role.")
     ap.add_argument("-n", "--dry-run", action="store_true",
@@ -816,30 +629,6 @@ def main():
                     help="for same-version REBUILDs, do NOT kill/restart the "
                          "running yuno; run update-binary only and print the "
                          "manual reminder (old behaviour).")
-    auth = ap.add_argument_group(
-        "OAuth2 (remote wss:// agent; logs in ONCE, reuses the token via -j)")
-    auth.add_argument("-I", "--issuer", default=None,
-                      help="OIDC issuer for discovery, e.g. "
-                           "https://auth.artgins.com/realms/artgins")
-    auth.add_argument("-T", "--token-endpoint", default=None,
-                      help="explicit token endpoint (skips discovery).")
-    auth.add_argument("-Z", "--client-id", default=None, help="OAuth2 client_id.")
-    auth.add_argument("--client-secret", default=os.environ.get("YUNETA_OAUTH_CLIENT_SECRET"),
-                      help="OAuth2 client_secret (confidential client only; "
-                           "default: $YUNETA_OAUTH_CLIENT_SECRET).")
-    auth.add_argument("-x", "--user-id", default=None, help="OAuth2 username.")
-    auth.add_argument("-X", "--user-passw", default=os.environ.get("YUNETA_OAUTH_PASSW"),
-                      help="OAuth2 password (default: $YUNETA_OAUTH_PASSW, which "
-                           "keeps it out of the process list).")
-    auth.add_argument("-j", "--jwt", default=None,
-                      help="reuse this jwt directly (skip the login).")
-
-    tls = ap.add_argument_group("TLS (wss:// agent)")
-    tls.add_argument("--ssl-trusted-certificate", default=None,
-                     help="PEM of the CA that signs the agent certificate.")
-    tls.add_argument("--ssl-server-name", default=None,
-                     help="name to check the agent certificate against "
-                          "(default: the host of the url).")
     args = ap.parse_args()
     set_tls_flags(args)
 
@@ -871,6 +660,12 @@ def main():
     local = local_binaries(yunos_dir)
 
     rows = classify(local, agent, instances)
+    if args.role:
+        unknown = sorted(set(args.role) - set(agent))
+        if unknown:
+            print(red("ERROR: --role %s: not a binary installed in this agent." % ", ".join(unknown)))
+            sys.exit(2)
+        rows = [r for r in rows if r["role"] in args.role]
     print_table(rows, show_uptodate=args.show_uptodate or args.dry_run)
 
     installed = [r for r in rows if r["kind"] == "installed"]

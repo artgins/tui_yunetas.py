@@ -58,13 +58,17 @@ yunetas list-nodes
 
 # Deploy (the agent tools ship inside this package, yunetas.agent_tools)
 yunetas sync                  [-n|-a|...]          # binaries AND configs together (recommended)
-yunetas sync-binaries         [-n|-a|...]          # outputs/yunos vs the agent
+yunetas sync-binaries         [-n|-a|--role R|...] # outputs/yunos vs the agent
 yunetas sync-configs          [-n|-a|-r|...]       # auto-match batches/<host>/ to the agent's realm_ids
 yunetas sync-configs --host <host> [...]          # or target one batches dir explicitly
 yunetas upgrade-yunos [--no-snap|--snap-name N|-y|-n]  # find-new-yunos -> snapshot -> deactivate-snap
 yunetas set-start-priorities  [-n|-a|--rule P=N]  # launch tier of each yuno, by role
 
 # every deploy command takes --node <name> (and --tunnel) to act on a registered node
+
+# This node
+yunetas restart-agents [-n|-y]  # restart the agents that run a replaced binary:
+                                # the main one, then the spare once the main answers
 ```
 
 On a **runtime-only node** (installed from the `.deb`/`.rpm`: `outputs/`,
@@ -76,6 +80,31 @@ arguments process the registered projects only — naming them is optional.
 The deploy commands exit with `1` when a push (or a restart they did) failed,
 so a script can tell. `sync` reads it: it does not push the configs after a
 failed binaries pass.
+
+`sync-binaries --role <role>` (repeatable) pushes only those roles. Without
+it, a change to one yuno can drag in every other binary that differs by a few
+bytes, because the local SDK is newer than the node's.
+
+
+# The agents of this node
+
+A build from source installs `yuneta_agent` and `yuneta_agent22` straight into
+`/yuneta/agent`, while the old processes go on running the old binary.
+`yunetas build` ends with a warning when that is the case. `yunetas
+restart-agents` restarts them in the safe order:
+
+1. It keeps the running binary as `/yuneta/agent/<agent>.bak-running-<date>`,
+   because after the restart it exists nowhere else.
+2. It restarts the main agent, and checks that it runs the binary on disk and
+   answers a command.
+3. Only then does it do the same with the spare. The spare is the way into a
+   node whose main agent does not come up, so a failure leaves it alone.
+
+An agent in its systemd unit is restarted with `sudo -n systemctl restart`. An
+agent run by hand is restarted with `--stop` and its own command line again.
+Run the command as the user that owns the agents. It is never automatic: the
+release suite builds on a node in a worktree of its own, and an automatic
+restart would load that build into the node's agents.
 
 
 # Deploy flow

@@ -1,5 +1,41 @@
 # **Changelog**
 
+## 0.23.0 -- 20-Oct-2026
+- **New command `restart-agents`.** A build from source installs
+  `yuneta_agent` and `yuneta_agent22` straight into `/yuneta/agent` while the
+  old processes go on running, and nothing said so: a spare ran a fixed bug
+  for five days on four nodes. The command restarts the agents of the node
+  that run a replaced binary (`/proc/<pid>/exe` ends in " (deleted)"): it
+  keeps the running binary as `<agent>.bak-running-<date>`, restarts the main
+  agent and checks that it runs the binary on disk and answers a command,
+  and only then restarts the spare. A failure leaves the spare alone: it is
+  the way into a node whose main agent does not come up. An agent in its
+  systemd unit is restarted with `sudo -n systemctl restart`, one run by
+  hand with `--stop` and its own command line (moving it into its unit
+  would start a second agent). It refuses agents of another user, root
+  included. `-n` shows the plan.
+- **`yunetas build` warns when an agent runs a binary it replaced**, and
+  names `restart-agents`. The restart is never automatic: the release suite
+  builds on a node in a worktree of its own, and an automatic restart would
+  load that build into the node's agents.
+- **`sync-binaries --role <role>`** (repeatable) pushes only those roles. A
+  change to one yuno no longer drags in every binary that differs by a few
+  bytes from the node's (the old way round was a directory with one file in
+  `--yunos-dir`).
+- **The three agent tools share one module** (`yunetas.agent_tools.common`):
+  the OAuth2 login, the ycommand connection flags, the reading of ycommand's
+  JSON, the version compare and the colours were copied, identical, into each
+  of them. The CLI uses the same login.
+- `sync-configs -r` waits 60 s for a yuno to stop before starting it again,
+  as `sync-binaries` does since 0.20.2 (two gates of yunovatios' central took
+  longer than 15 s to stop).
+- `upgrade-yunos -n` ends with "dry-run: nothing was run" instead of claiming
+  that the nodes were restarted.
+- Removed: the fallback to the `/yuneta/development` layout and the one-time
+  move of `$YUNETAS_BASE/.projects.json` (no node uses that layout since
+  2026-07-22). A `YUNETAS_BASE` that is not a directory is said on stderr, and
+  not during a shell completion.
+
 ## 0.22.0 -- 20-Oct-2026
 - **The agent tools exit 1 when a push failed.** `sync-binaries`,
   `sync-configs` and `set-start-priorities` printed `Done: 0 ok, 1 failed`

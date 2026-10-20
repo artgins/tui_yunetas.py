@@ -75,3 +75,36 @@ def test_set_start_priorities_exit_code(fake_ycommand, answer, code):
     r = run_tool("set_start_priorities", ["--ycommand", str(ycommand), "-a"])
     assert r.returncode == code, r.stdout + r.stderr
     assert any("command=update-node" in c for c in asked(log))
+
+
+#
+#   sync_binaries --role: only those roles are candidates
+#
+def test_sync_binaries_role_keeps_only_that_role(tmp_path, fake_ycommand):
+    yunos = tmp_path / "yunos"
+    yunos.mkdir()
+    for role in ("gate", "dba"):
+        f = yunos / role
+        f.write_text(
+            "#!/bin/sh\n"
+            "echo '{\"role\": \"%s\", \"version\": \"1.1.0\", \"date\": \"2026-10-20T00:00:00Z\"}'\n" % role
+        )
+        f.chmod(0o755)
+    ycommand, log = fake_ycommand({
+        "*list-binaries": json.dumps([
+            {"id": "gate", "version": "1.0.0", "size": 1, "time": 1},
+            {"id": "dba", "version": "1.0.0", "size": 1, "time": 1},
+        ]),
+        "*list-binaries-instances": "[]",
+        "*list-yunos": "[]",
+    })
+    base = ["--ycommand", str(ycommand), "--yunos-dir", str(yunos), "-a"]
+
+    r = run_tool("sync_binaries", base + ["--role", "gate"])
+    assert r.returncode == 0, r.stdout + r.stderr
+    pushed = [c for c in asked(log) if c.startswith("install-binary")]
+    assert len(pushed) == 1 and pushed[0].startswith("install-binary id=gate")
+
+    r = run_tool("sync_binaries", base + ["--role", "nope"])
+    assert r.returncode == 2
+    assert "not a binary installed in this agent" in r.stdout

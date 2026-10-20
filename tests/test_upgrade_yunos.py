@@ -104,5 +104,14 @@ class UpgradeYunosTest(unittest.TestCase):
         self.assertNotIn("deactivate-snap", agent.asked)
 
 
+    def test_dry_run_does_not_claim_a_restart(self):
+        agent = FakeAgent([CREATE])
+        main.run_ycommand = agent.run_ycommand
+        result = CliRunner().invoke(main.app, ["upgrade-yunos", "-y", "--no-snap", "-n"])
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn("dry-run: nothing was run", result.output)
+        self.assertNotIn("nodes restarted", result.output)
+
+
 if __name__ == "__main__":
     unittest.main()

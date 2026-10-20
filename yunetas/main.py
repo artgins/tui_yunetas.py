@@ -2,11 +2,12 @@ import typer
 from rich import print
 from rich.console import Console
 from .__version__ import __version__
-from .agent_tools.sync_binaries import obtain_jwt
+from .agent_tools.common import obtain_jwt
 from typing import Optional, List
 from pathlib import Path
 import json
 import os
+import pwd
 import re
 import socket
 import sys
@@ -18,31 +19,14 @@ import types
 import atexit
 from datetime import datetime
 
-# # Check if YUNETAS_BASE is set, or derive it from the current directory if YUNETA_VERSION exists
-# YUNETAS_BASE = os.getenv("YUNETAS_BASE")
-# current_dir = os.getcwd()
-# yuneta_version_path = os.path.join(current_dir, "YUNETA_VERSION")
-#
-# if not YUNETAS_BASE:
-#     if os.path.isfile(yuneta_version_path):
-#         YUNETAS_BASE = current_dir
-#         print(f"[yellow]YUNETAS_BASE not set. Using current directory as YUNETAS_BASE: {YUNETAS_BASE}[/yellow]")
-#     else:
-#         print("[red]Error: YUNETAS_BASE environment variable is not set and YUNETA_VERSION file not found in the current directory.[/red]")
-#         sys.exit(1)
-#
-# if not os.path.isdir(YUNETAS_BASE):
-#     print(f"[red]Error: YUNETAS_BASE '{YUNETAS_BASE}' does not exist or is not a directory.[/red]")
-#     sys.exit(1)
-
-
-# 1) ENV, 2) /yuneta/development/yunetas, 3) /yuneta/development, else fail
+# 1) ENV, 2) /yuneta/development/yunetas, else fail. The same path on every
+# node: a source checkout, or the sparse SDK of the .deb/.rpm.
 env_base = os.environ.get("YUNETAS_BASE")
 
 candidates = []
 if env_base:
     candidates.append(env_base)
-candidates += ["/yuneta/development/yunetas", "/yuneta/development"]
+candidates += ["/yuneta/development/yunetas"]
 
 YUNETAS_BASE = next((p for p in candidates if p and os.path.isdir(p)), None)
 
@@ -55,16 +39,19 @@ final_messages = []
 
 compiler = ""
 
-# Warn if ENV was set but invalid
+# Warn if ENV was set but invalid. Not during a shell completion (click marks
+# that invocation with _YUNETAS_COMPLETE): a line printed at import lands in
+# its candidates (see below).
 if env_base and (not os.path.isdir(env_base)):
     msg = f"[yellow]Warning: YUNETAS_BASE is set to '{env_base}' but it is not a directory. Falling back...[/yellow]"
-    print(msg)
+    if "_YUNETAS_COMPLETE" not in os.environ:
+        print(msg, file=sys.stderr)
     final_messages.append(msg)
 
 if not YUNETAS_BASE:
     print("[red]Error: Could not determine YUNETAS_BASE. "
           "Set the YUNETAS_BASE environment variable to a valid directory, "
-          "or ensure /yuneta/development\\[/yunetas] exists.[/red]", file=sys.stderr)
+          "or ensure /yuneta/development/yunetas exists.[/red]", file=sys.stderr)
     sys.exit(1)
 
 # Don't print here: this module runs on every invocation, including the
@@ -74,12 +61,6 @@ if not YUNETAS_BASE:
 # the end of init/build/clean, which is where it is actually useful.
 msg = f"Using [green]YUNETAS_BASE[/green] at {YUNETAS_BASE}"
 final_messages.append(msg)
-
-# If you also want to verify a specific file exists (like the CMake case):
-# required = os.path.join(YUNETAS_BASE, "tools", "cmake", "project.cmake")
-# if not os.path.isfile(required):
-#     print(f"[red]Error: Missing required file: {required}[/red]", file=sys.stderr)
-#     sys.exit(1)
 
 # Registry of external projects (built after the SDK). This is runtime/usage
 # state, NOT part of any source checkout, so it lives in the user's home
@@ -102,19 +83,6 @@ NODES_REGISTRY_PATH = os.path.join(YUNETA_USER_DIR, "nodes.json")
 ENV_OAUTH_PASSW = "YUNETA_OAUTH_PASSW"
 ENV_OAUTH_CLIENT_SECRET = "YUNETA_OAUTH_CLIENT_SECRET"
 ENV_OAUTH_JWT = "YUNETA_OAUTH_JWT"
-
-# Soft migration from the legacy in-tree location ($YUNETAS_BASE/.projects.json).
-# Done once: if the old file exists and the new one does not, move it across.
-_LEGACY_REGISTRY_PATH = os.path.join(YUNETAS_BASE, ".projects.json")
-if os.path.isfile(_LEGACY_REGISTRY_PATH) and not os.path.isfile(PROJECTS_REGISTRY_PATH):
-    try:
-        os.makedirs(YUNETA_USER_DIR, exist_ok=True)
-        shutil.move(_LEGACY_REGISTRY_PATH, PROJECTS_REGISTRY_PATH)
-        print(f"[yellow]Migrated project registry: "
-              f"{_LEGACY_REGISTRY_PATH} -> {PROJECTS_REGISTRY_PATH}[/yellow]")
-    except Exception as e:
-        print(f"[yellow]Warning: could not migrate project registry "
-              f"from {_LEGACY_REGISTRY_PATH}: {e}[/yellow]")
 
 # Directories to process
 DIRECTORIES = [
@@ -301,6 +269,10 @@ def build(
         print(f"[cyan]Project: {project['name']} ({project['path']})[/cyan]")
         process_build_command([yunos_dir], ["make", make_jobs, "install"])
         final_messages.append(f"Project [cyan]{project['name']}[/cyan] built.")
+
+    # The SDK build installs the agents straight into /yuneta/agent.
+    if include_sdk:
+        report_stale_agents()
 
     #
     #   Two builds that install a yuno of the same role overwrite each other
@@ -905,6 +877,9 @@ def upgrade_yunos(
         print("[red]Error: deactivate-snap failed.[/red]")
         raise typer.Exit(code=1)
 
+    if dry_run:
+        print("[yellow]upgrade-yunos dry-run: nothing was run on the agent.[/yellow]")
+        return
     print("[green]upgrade-yunos done: new releases promoted and nodes restarted.[/green]")
 
 
@@ -938,6 +913,389 @@ def _create_new_yuno_rows(ycommand, url, dry_run, to_create, registered):
                   "proceeding to promote.[/yellow]")
         else:
             print(f"[green]{upgrade_rows_summary(len(to_create), len(registered))}.[/green]")
+
+
+#--------------------------------------------------#
+#   The agents of this node
+#
+#   Every node runs yuneta_agent plus yuneta_agent22, a deliberate
+#   redundancy: the spare is the only way into a node whose main agent is
+#   broken. A build from source installs both binaries straight into
+#   /yuneta/agent while the old processes go on running, and nothing said
+#   so: a spare ran a fixed bug for five days on four nodes.
+#
+#   A replaced binary is told EXACTLY by /proc/<pid>/exe ending in
+#   " (deleted)": Linux refuses to write into a running binary (ETXTBSY), so
+#   every replacement goes through an unlink (the test of
+#   tools/agent/audit-agents.sh).
+#
+#   The restart is a command of its own and never automatic after a build:
+#   the release suite builds on a node in a worktree of its own, and an
+#   automatic restart would load that build into the node's agents.
+#--------------------------------------------------#
+AGENT_DIR = "/yuneta/agent"
+AGENTS = [("yuneta_agent", "main"), ("yuneta_agent22", "spare")]
+AGENT_RESTART_TIMEOUT = 60      # seconds, for each wait of a restart
+
+
+def agent_processes(name):
+    """
+    The processes named `name` (matched by name, like `pgrep -x`), as dicts:
+    pid, ppid, uid, exe (None when unreadable: another user's process),
+    stale (exe ends in " (deleted)") and cmdline (argv list, or None).
+    """
+    out = []
+    try:
+        entries = os.listdir("/proc")
+    except OSError as e:
+        print(f"[red]Error: cannot list /proc: {e}[/red]")
+        raise typer.Exit(code=1)
+    for entry in entries:
+        if not entry.isdigit():
+            continue
+        base = os.path.join("/proc", entry)
+        try:
+            with open(os.path.join(base, "comm")) as f:
+                if f.read().strip() != name:
+                    continue
+            with open(os.path.join(base, "stat")) as f:
+                # The comm field may hold spaces; ppid is the 2nd field after it.
+                ppid = int(f.read().rsplit(")", 1)[1].split()[1])
+            uid = os.stat(base).st_uid
+        except (OSError, ValueError, IndexError):
+            continue    # gone meanwhile
+        try:
+            exe = os.readlink(os.path.join(base, "exe"))
+        except OSError:
+            exe = None
+        try:
+            with open(os.path.join(base, "cmdline"), "rb") as f:
+                cmdline = [a.decode() for a in f.read().split(b"\0") if a]
+        except OSError:
+            cmdline = None
+        out.append({
+            "pid": int(entry),
+            "ppid": ppid,
+            "uid": uid,
+            "exe": exe,
+            "stale": bool(exe) and exe.endswith(" (deleted)"),
+            "cmdline": cmdline,
+        })
+    return out
+
+
+def agent_watcher(procs):
+    """The watcher of an agent: the process whose parent is not one of them."""
+    pids = {p["pid"] for p in procs}
+    for p in procs:
+        if p["ppid"] not in pids:
+            return p
+    return procs[0] if procs else None
+
+
+def unit_main_pid(name):
+    """MainPID of the systemd unit `name`, or 0 (no unit, or not running in it)."""
+    if not shutil.which("systemctl"):
+        return 0
+    try:
+        res = subprocess.run(
+            ["systemctl", "show", "-p", "MainPID", "--value", name],
+            capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=30,
+        )
+        return int((res.stdout or "0").strip() or 0)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return 0
+
+
+def agent_disk_version(name):
+    """The version of the binary on disk ('yuneta_agent 7.27.4 <date>'), or '?'."""
+    try:
+        res = subprocess.run(
+            [os.path.join(AGENT_DIR, name), "--version"],
+            capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=30,
+        )
+        fields = (res.stdout or "").split()
+        return fields[1] if len(fields) > 1 else "?"
+    except (OSError, subprocess.SubprocessError):
+        return "?"
+
+
+def agent_config_file(name, cmdline):
+    """The --config-file of an agent's command line, or its default."""
+    args = cmdline or []
+    for i, a in enumerate(args):
+        if a.startswith("--config-file="):
+            return a.split("=", 1)[1]
+        if a == "--config-file" and i + 1 < len(args):
+            return args[i + 1]
+    return os.path.join(AGENT_DIR, f"{name}.json")
+
+
+def agent_state(name, role):
+    """What restart-agents needs to know about one agent."""
+    procs = agent_processes(name)
+    watcher = agent_watcher(procs)
+    state = {
+        "name": name,
+        "role": role,
+        "procs": procs,
+        "running": bool(procs),
+        "readable": all(p["exe"] is not None for p in procs),
+        "stale": any(p["stale"] for p in procs),
+        "uid": watcher["uid"] if watcher else None,
+        "watcher": watcher,
+        "in_unit": False,
+        "cmdline": watcher["cmdline"] if watcher else None,
+    }
+    if watcher:
+        state["in_unit"] = unit_main_pid(name) == watcher["pid"]
+    return state
+
+
+def report_stale_agents():
+    """
+    After a build: say which agents of this node run a binary the build
+    replaced. Read-only; the restart is 'yunetas restart-agents'.
+    """
+    if not os.path.isdir(AGENT_DIR):
+        return
+    stale = []
+    unreadable = []
+    for name, role in AGENTS:
+        state = agent_state(name, role)
+        if not state["running"]:
+            continue
+        if not state["readable"]:
+            unreadable.append(name)
+        elif state["stale"]:
+            stale.append(name)
+    if stale:
+        final_messages.append(
+            f"[bold yellow]WARNING: {' and '.join(stale)} run a binary that is no longer "
+            f"on disk (replaced by a build). If this build is the one the node must run, "
+            f"restart them with 'yunetas restart-agents' (the main agent first, then the "
+            f"spare).[/bold yellow]"
+        )
+    if unreadable:
+        final_messages.append(
+            f"[yellow]Cannot tell whether {' and '.join(unreadable)} run the binary on disk: "
+            f"they belong to another user. Ask as their owner: "
+            f"{os.path.join(YUNETAS_BASE, 'tools', 'agent', 'audit-agents.sh')}[/yellow]"
+        )
+
+
+def backup_running_agent(state):
+    """
+    Keep the binary the agent runs: once it is restarted, the old binary
+    exists nowhere else (the build unlinked it). Returns the path, or None.
+    """
+    name = state["name"]
+    dest = os.path.join(AGENT_DIR, f"{name}.bak-running-{datetime.now():%Y%m%d_%H%M%S}")
+    try:
+        shutil.copyfile(f"/proc/{state['watcher']['pid']}/exe", dest)
+        os.chmod(dest, 0o755)
+    except OSError as e:
+        print(f"[red]Error: cannot keep the running {name} as {dest}: {e}[/red]")
+        return None
+    print(f"[dim]   kept the running binary as {dest}[/dim]")
+    return dest
+
+
+def wait_agent_gone(name, old_pids):
+    """Wait until none of `old_pids` runs. True when they are gone."""
+    deadline = time.monotonic() + AGENT_RESTART_TIMEOUT
+    while time.monotonic() < deadline:
+        alive = {p["pid"] for p in agent_processes(name)} & set(old_pids)
+        if not alive:
+            return True
+        time.sleep(0.5)
+    return False
+
+
+def wait_agent_up(name, old_pids):
+    """
+    Wait until the agent runs again, only new processes, all on the binary on
+    disk, and still there 3 s later (not crashing at start). True when so.
+    """
+    deadline = time.monotonic() + AGENT_RESTART_TIMEOUT
+    while time.monotonic() < deadline:
+        procs = agent_processes(name)
+        pids = {p["pid"] for p in procs}
+        if procs and not (pids & set(old_pids)) and \
+                all(p["exe"] and not p["stale"] for p in procs):
+            time.sleep(3)
+            if {p["pid"] for p in agent_processes(name)} == pids:
+                return True
+        time.sleep(0.5)
+    return False
+
+
+def agent_answers():
+    """True when the local main agent answers a command (default url)."""
+    ycommand = ycommand_path()
+    if not ycommand:
+        print("[red]Error: ycommand not found in PATH: cannot check that the main agent answers.[/red]")
+        return False
+    deadline = time.monotonic() + AGENT_RESTART_TIMEOUT
+    while time.monotonic() < deadline:
+        try:
+            res = subprocess.run(
+                [ycommand, "-c", "*list-realms"],
+                capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=15,
+            )
+            _parse_leading_json(res.stdout)
+            if res.returncode == 0:
+                return True
+        except (OSError, subprocess.SubprocessError, ValueError):
+            pass
+        time.sleep(1)
+    print("[red]Error: the main agent does not answer '*list-realms' on its local url.[/red]")
+    return False
+
+
+def restart_agent(state, dry_run):
+    """
+    Restart one agent on the binary on disk: through its systemd unit when it
+    runs in it, else with --stop and its own command line again (an agent run
+    by hand must not be moved into its unit: `systemctl restart` there starts
+    a second agent, which exits "already running" and leaves the old one).
+    True when it runs again on the binary on disk.
+    """
+    name = state["name"]
+    old_pids = [p["pid"] for p in state["procs"]]
+
+    if state["in_unit"]:
+        cmd = ["sudo", "-n", "systemctl", "restart", name]
+        print(f"[cyan]>> {' '.join(cmd)}[/cyan]")
+        if dry_run:
+            return True
+        res = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                             timeout=AGENT_RESTART_TIMEOUT * 2)
+        if res.returncode != 0:
+            print(f"[red]Error: {(res.stderr or res.stdout).strip()}[/red]")
+            print(f"[yellow]Restart it by hand: sudo systemctl restart {name}[/yellow]")
+            return False
+    else:
+        bin_path = os.path.join(AGENT_DIR, name)
+        config = agent_config_file(name, state["cmdline"])
+        stop = [bin_path, f"--config-file={config}", "--stop"]
+        start = [bin_path] + list((state["cmdline"] or [])[1:])
+        if "--start" not in start:
+            start = [bin_path, f"--config-file={config}", "--start"]
+        print(f"[cyan]>> {' '.join(stop)}[/cyan]")
+        print(f"[cyan]>> {' '.join(start)}[/cyan]")
+        if dry_run:
+            return True
+        subprocess.run(stop, capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                       timeout=AGENT_RESTART_TIMEOUT)
+        if not wait_agent_gone(name, old_pids):
+            print(f"[red]Error: {name} still runs {AGENT_RESTART_TIMEOUT} s after --stop; "
+                  f"it was not started again.[/red]")
+            return False
+        # It daemonizes itself; a session of its own keeps it off this terminal.
+        subprocess.run(start, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL, start_new_session=True,
+                       timeout=AGENT_RESTART_TIMEOUT)
+
+    if not wait_agent_up(name, old_pids):
+        print(f"[red]Error: {name} does not run again on the binary on disk.[/red]")
+        return False
+    return True
+
+
+@app.command(name="restart-agents")
+def restart_agents(
+    yes: bool = typer.Option(
+        False, "--yes", "-y", help="Don't ask before restarting."
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", "-n", help="Show the state and the commands, run nothing."
+    ),
+):
+    """
+    Restart the agents of THIS node that run a binary a build replaced: the
+    main agent first, then, once it answers, the spare. Never both at once,
+    never the spare first: the spare is the way into a node whose main agent
+    does not come up.
+
+    An agent that runs in its systemd unit is restarted with 'sudo -n
+    systemctl restart <unit>'; one run by hand, with --stop and its own
+    command line. The running binary is kept first as
+    /yuneta/agent/<agent>.bak-running-<date>. Run it as the user that owns
+    the agents.
+    """
+    states = [agent_state(name, role) for name, role in AGENTS]
+    main_state, spare_state = states
+
+    for s in states:
+        if not s["running"]:
+            what = "[red]NOT RUNNING[/red]"
+        elif not s["readable"]:
+            what = "[yellow]cannot tell (another user's process)[/yellow]"
+        elif s["stale"]:
+            what = f"[yellow]STALE: a restart gives {agent_disk_version(s['name'])}[/yellow]"
+        else:
+            what = "[green]runs the binary on disk[/green]"
+        where = "in its systemd unit" if s["in_unit"] else "outside systemd"
+        if not s["running"]:
+            where = ""
+        print(f"  [cyan]{s['name']:<16}[/cyan] {s['role']:<6} {what}  [dim]{where}[/dim]")
+
+    if not main_state["running"]:
+        print("[red]Error: the main agent does not run. Start it first; the spare is left as it is.[/red]")
+        raise typer.Exit(code=1)
+
+    # Root is no exception: an agent run by hand is started again by this
+    # process, and would come back as root.
+    me = os.geteuid()
+    for s in states:
+        if s["running"] and (not s["readable"] or s["uid"] != me):
+            try:
+                owner = pwd.getpwuid(s["uid"]).pw_name
+            except (KeyError, TypeError):
+                owner = str(s["uid"])
+            print(f"[red]Error: {s['name']} belongs to '{owner}'. Run this command as '{owner}'.[/red]")
+            raise typer.Exit(code=1)
+
+    to_restart = [s for s in states if s["running"] and s["stale"]]
+    if not to_restart:
+        print("[green]Every running agent runs the binary on disk. Nothing to do.[/green]")
+        return
+
+    if not yes and not dry_run:
+        names = " then ".join(s["name"] for s in to_restart)
+        if not typer.confirm(f"Restart {names}?", default=False):
+            print("[yellow]Aborted: nothing restarted.[/yellow]")
+            raise typer.Exit(code=1)
+
+    if main_state["stale"]:
+        print(f"[cyan]== {main_state['name']} ==[/cyan]")
+        if not dry_run and not backup_running_agent(main_state):
+            print("[red]Nothing restarted.[/red]")
+            raise typer.Exit(code=1)
+        if not restart_agent(main_state, dry_run):
+            print(f"[red]{spare_state['name']} was NOT touched: it is the way into this node.[/red]")
+            raise typer.Exit(code=1)
+
+    if spare_state["running"] and spare_state["stale"]:
+        # Whether restarted or not, the main agent must answer before the
+        # spare goes down.
+        if not dry_run and not agent_answers():
+            print(f"[red]{spare_state['name']} was NOT touched: it is the way into this node.[/red]")
+            raise typer.Exit(code=1)
+        print(f"[cyan]== {spare_state['name']} ==[/cyan]")
+        if not dry_run and not backup_running_agent(spare_state):
+            print("[red]The spare was not restarted.[/red]")
+            raise typer.Exit(code=1)
+        if not restart_agent(spare_state, dry_run):
+            raise typer.Exit(code=1)
+    elif main_state["stale"] and not dry_run and not agent_answers():
+        raise typer.Exit(code=1)
+
+    if dry_run:
+        print("[yellow]restart-agents dry-run: nothing was run.[/yellow]")
+        return
+    print("[green]restart-agents done: the agents run the binaries on disk.[/green]")
 
 
 # The first SDK whose suite passes at once (ctest -j). 7.26.1 declares what
@@ -1056,6 +1414,7 @@ EXTENDED_HELP_GROUPS = [
     ("Projects", ["register-project", "unregister-project", "list-projects"]),
     ("Deploy targets", ["register-node", "unregister-node", "list-nodes"]),
     ("Deploy", ["sync", "sync-binaries", "sync-configs", "upgrade-yunos", "set-start-priorities"]),
+    ("This node", ["restart-agents"]),
     ("Misc", ["version"]),
 ]
 
