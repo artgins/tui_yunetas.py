@@ -1,5 +1,16 @@
 # **Changelog**
 
+## 0.23.1 -- 21-Oct-2026
+- **`-n` asks nothing** in `sync-binaries`, `sync-configs` and so in `yunetas
+  sync`. A dry run listed the candidates and then asked "Apply [a]ll, [s]elect
+  one by one, or [q]uit?". With stdin at EOF the question answered itself
+  ("Cancelled - no changes made"), so it looked like a plain listing. But
+  over ssh from a background job stdin is the open ssh channel, and the dry
+  run waited for an answer: 34 minutes on two nodes, with the deploy steps
+  after it never run. A dry run now shows the command of every candidate,
+  marked "dry-run, not executed", and ends saying none was executed, as
+  `set-start-priorities -n` already did.
+
 ## 0.23.0 -- 20-Oct-2026
 - **New command `restart-agents`.** A build from source installs
   `yuneta_agent` and `yuneta_agent22` straight into `/yuneta/agent` while the

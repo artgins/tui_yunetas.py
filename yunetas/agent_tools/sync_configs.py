@@ -555,7 +555,8 @@ def main():
     ap.add_argument("-a", "--all", action="store_true",
                     help="apply every candidate without asking per-config.")
     ap.add_argument("-n", "--dry-run", action="store_true",
-                    help="show what would run, execute nothing.")
+                    help="show what would run for every candidate, execute "
+                         "nothing, ask nothing.")
     ap.add_argument("--show-uptodate", action="store_true",
                     help="also list configs already in sync and agent-only ones.")
     ap.add_argument("-r", "--restart", action="store_true",
@@ -637,9 +638,12 @@ def _sync_body(args, ycommand, jwt, local, agent, instances):
             print(red("   %s  local %s < agent %s" %
                       (r["id"], r["local"]["version"], r["agent"]["version"])))
 
-    # Decide which to apply.
+    # Decide which to apply. A dry run asks nothing: it shows the command of
+    # every candidate and runs none. Up to 0.23.0 it asked "Apply [a]ll...?",
+    # and over ssh from a background job, whose stdin stays open, it waited
+    # for an answer for ever.
     chosen = []
-    if args.all:
+    if args.all or args.dry_run:
         chosen = candidates
     else:
         mode = ask("\nApply [a]ll, [s]elect one by one, or [q]uit? ")
@@ -678,6 +682,8 @@ def _sync_body(args, ycommand, jwt, local, agent, instances):
             fail += 1
     print()
     print(bold("Done: %s, %s." % (green("%d ok" % ok), red("%d failed" % fail) if fail else dim("0 failed"))))
+    if args.dry_run:
+        print(dim("(dry run: the commands above were shown, none was executed)"))
 
     # A yuno reads its config only at (re)start, and only the version of its
     # own row: an UPDATE is applied by a restart, a BUMP only by promoting it.
