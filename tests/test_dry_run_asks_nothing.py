@@ -6,7 +6,9 @@
 #   With stdin at EOF that answered itself ("Cancelled"), but over ssh from a
 #   background job stdin is an open channel, and the dry run waited for an
 #   answer for ever (34 minutes on two nodes, 2026-10-21). The tests hold
-#   stdin open, as that channel did.
+#   stdin open, as that channel did. Its closing notes say what WOULD happen:
+#   up to 0.23.1 they said that the yunos were killed, the slots made and the
+#   configs stored.
 #
 import json
 import os
@@ -71,6 +73,8 @@ def test_sync_binaries_dry_run_asks_nothing(tmp_path, fake_ycommand):
     assert ">> ycommand -c 'install-binary id=gate" in out
     assert ">> ycommand -c 'update-binary id=db" in out
     assert "none was executed" in out
+    assert "would be kill-yuno'd" in out and "were kill-yuno'd" not in out
+    assert "would create NEW slot" in out and "created NEW slot" not in out
     assert not any(c.startswith(PUSHES) for c in asked(log))
 
 
@@ -93,4 +97,5 @@ def test_sync_configs_dry_run_asks_nothing(tmp_path, fake_ycommand):
     assert "create-config id='foo.1'" in out
     assert "create-config id='bar.1'" in out
     assert "none was executed" in out
+    assert "would store a NEW version" in out and "stored a NEW version" not in out
     assert not any(c.startswith(PUSHES) for c in asked(log))

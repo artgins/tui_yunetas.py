@@ -1,5 +1,14 @@
 # **Changelog**
 
+## 0.23.2 -- 21-Oct-2026
+- **A dry run's closing notes say what WOULD happen.** After `-n`,
+  `sync-binaries` said *"REBUILD roles were kill-yuno'd, overwritten and
+  restored"* and *"install-binary created NEW slot(s)"*, and `sync-configs`
+  said *"Restarting affected yuno(s)"* and *"create-config stored a NEW
+  version"*, for commands it had not run. They now read *"would be
+  kill-yuno'd"*, *"would create"*, *"would be restarted"* and *"would
+  store"*.
+
 ## 0.23.1 -- 21-Oct-2026
 - **`-n` asks nothing** in `sync-binaries`, `sync-configs` and so in `yunetas
   sync`. A dry run listed the candidates and then asked "Apply [a]ll, [s]elect

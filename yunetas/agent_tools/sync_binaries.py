@@ -765,10 +765,16 @@ def main():
     if did_update and args.no_restart:
         print(dim("\nNote: update-binary overwrites the SAME-version slot. If a yuno was running"))
         print(dim("from that slot it must be kill-yuno'd first (text-file-busy), then run-yuno."))
+    elif did_update and args.dry_run:
+        print(dim("\nNote: REBUILD roles would be kill-yuno'd, overwritten and restored to their"))
+        print(dim("prior run/play state, scoped by yuno_role."))
     elif did_update:
         print(dim("\nNote: REBUILD roles were kill-yuno'd, overwritten and restored to their"))
         print(dim("prior run/play state, scoped by yuno_role."))
-    if did_install:
+    if did_install and args.dry_run:
+        print(dim("\nNote: install-binary would create NEW slot(s). To make them primary, after"))
+        print(dim("the push run:"))
+    elif did_install:
         print(dim("\nNote: install-binary created NEW slot(s). To make them primary run:"))
         print(dim("   yunetas upgrade-yunos              (shoot-snap -> find-new-yunos -> deactivate-snap)"))
         print(dim("or the raw equivalent:"))

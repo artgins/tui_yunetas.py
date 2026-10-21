@@ -693,7 +693,10 @@ def _sync_body(args, ycommand, jwt, local, agent, instances):
     affected, promote, new_only = sort_pushed_configs(pushed)
 
     if affected and args.restart:
-        print(dim("\nRestarting affected yuno(s) to apply the new config(s)..."))
+        if args.dry_run:
+            print(dim("\nThe affected yuno(s) would be restarted to apply the new config(s):"))
+        else:
+            print(dim("\nRestarting affected yuno(s) to apply the new config(s)..."))
         states = yuno_states_by_id(ycommand, args.url, jwt)
 
         # Restart in ascending start_priority order (the agent owns this number)
@@ -720,7 +723,10 @@ def _sync_body(args, ycommand, jwt, local, agent, instances):
         print(dim("   affected yuno id(s): %s" % ", ".join(sorted(affected))))
 
     if promote:
-        print(dim("\nNote: create-config stored a NEW version of %s." % ", ".join(sorted(promote))))
+        if args.dry_run:
+            print(dim("\nNote: create-config would store a NEW version of %s." % ", ".join(sorted(promote))))
+        else:
+            print(dim("\nNote: create-config stored a NEW version of %s." % ", ".join(sorted(promote))))
         print(dim("A yuno runs the config version of its own row, so a restart changes nothing."))
         print(dim("Promote it with:"))
         print(dim("   yunetas upgrade-yunos              (shoot-snap -> find-new-yunos -> deactivate-snap)"))
