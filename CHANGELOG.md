@@ -1,5 +1,24 @@
 # **Changelog**
 
+## 0.23.3 -- 22-Oct-2026
+- **`restart-agents` refuses to restart the main agent when the spare does
+  not run.** It restarted it anyway, so a main agent that did not come up
+  left the node with no agent at all, against the two-agent rule; and the
+  failure said that the spare "is the way into this node" while the spare
+  was down. It now exits 1 and says so; `--without-spare` restarts the main
+  agent alone, and a failure then says that the node has no agent.
+- **An agent restarted outside its systemd unit no longer inherits the
+  operator's credentials.** `YUNETA_OAUTH_PASSW`,
+  `YUNETA_OAUTH_CLIENT_SECRET` and `YUNETA_OAUTH_JWT` went into the agent's
+  environment and into that of every yuno it launched, where they stayed in
+  `/proc/<pid>/environ` and in core dumps.
+- **`sync-binaries --role R` is an error when R has no local build**
+  (exit 2). It said "Everything is up to date" and exited 0, because the
+  no-build row is hidden and no candidate was left.
+- **`sync-binaries -n` prints the commands that make the new slots
+  primary.** Its note ended at "To make them primary, after the push run:",
+  with the commands only in the note of a real run.
+
 ## 0.23.2 -- 21-Oct-2026
 - **A dry run's closing notes say what WOULD happen.** After `-n`,
   `sync-binaries` said *"REBUILD roles were kill-yuno'd, overwritten and
