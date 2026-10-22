@@ -938,6 +938,16 @@ AGENTS = [("yuneta_agent", "main"), ("yuneta_agent22", "spare")]
 AGENT_RESTART_TIMEOUT = 60      # seconds, for each wait of a restart
 
 
+def read_cmdline(path):
+    """
+    The argv in /proc/<pid>/cmdline. Decoded as the filesystem does
+    (os.fsdecode), so an argument that is not UTF-8 neither raises nor
+    changes: an agent run by hand is started again with this argv.
+    """
+    with open(path, "rb") as f:
+        return [os.fsdecode(a) for a in f.read().split(b"\0") if a]
+
+
 def agent_processes(name):
     """
     The processes named `name` (matched by name, like `pgrep -x`), as dicts:
@@ -969,8 +979,7 @@ def agent_processes(name):
         except OSError:
             exe = None
         try:
-            with open(os.path.join(base, "cmdline"), "rb") as f:
-                cmdline = [a.decode() for a in f.read().split(b"\0") if a]
+            cmdline = read_cmdline(os.path.join(base, "cmdline"))
         except OSError:
             cmdline = None
         out.append({
@@ -1301,12 +1310,20 @@ def restart_agents(
             print("[red]Nothing restarted.[/red]")
             raise typer.Exit(code=1)
         if not restart_agent(main_state, dry_run):
+            old_pids = {p["pid"] for p in main_state["procs"]}
+            now_pids = {p["pid"] for p in agent_processes(main_state["name"])}
             if spare_state["running"]:
                 print(f"[red]{spare_state['name']} was NOT touched: it is the way into this node.[/red]")
-            elif agent_processes(main_state["name"]):
+            elif now_pids & old_pids:
                 # systemctl failed, or it outlived --stop: it still serves, on the old binary.
                 print(f"[red]{main_state['name']} still runs, on the binary it ran before; "
                       f"{spare_state['name']} does not run.[/red]")
+            elif now_pids:
+                # The old one is gone and the new one never settled (a watcher
+                # relaunching a binary that falls) or never answered in time.
+                print(f"[red]{main_state['name']} runs on the new binary but does not answer, "
+                      f"and {spare_state['name']} does not run: no agent answers on this node now. "
+                      f"Look at its log on the node.[/red]")
             else:
                 print(f"[red]{spare_state['name']} does not run: this node has NO agent now. "
                       f"Start one of them on the node.[/red]")

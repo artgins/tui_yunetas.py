@@ -186,6 +186,31 @@ def test_a_failed_main_that_still_runs_is_not_called_gone(fake, monkeypatch):
     assert "yuneta_agent still runs" in r.output
 
 
+def test_a_failed_main_that_came_up_new_is_not_called_the_old_one(fake, monkeypatch):
+    # The old pids are gone and a NEW agent runs but never answered or settled:
+    # the old binary does not serve, and nothing answers on the node.
+    log, states, _, restart_ok = fake
+    states["yuneta_agent"] = state("yuneta_agent", "main")
+    states["yuneta_agent22"] = state("yuneta_agent22", "spare", running=False)
+    restart_ok["yuneta_agent"] = False
+    monkeypatch.setattr(m, "agent_processes",
+                        lambda name: [{"pid": 300}] if name == "yuneta_agent" else [])
+    r = run("--without-spare")
+    assert r.exit_code == 1
+    assert "binary it ran before" not in r.output
+    assert "does not answer" in r.output
+
+
+def test_a_cmdline_that_is_not_utf8_is_read_and_kept(tmp_path):
+    # It is the command line an agent run by hand is started again with.
+    f = tmp_path / "cmdline"
+    raw = b"/yuneta/agent/yuneta_agent\0--config-file=\xff.json\0--start\0"
+    f.write_bytes(raw)
+    argv = m.read_cmdline(str(f))
+    assert argv[0] == "/yuneta/agent/yuneta_agent"
+    assert b"\0".join(os.fsencode(a) for a in argv) + b"\0" == raw
+
+
 def test_another_users_agents_are_refused(fake):
     log, states, _, _ = fake
     states["yuneta_agent"] = state("yuneta_agent", "main", uid=ME + 1, readable=False)

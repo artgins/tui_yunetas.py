@@ -1,5 +1,18 @@
 # **Changelog**
 
+## 0.23.5 -- 22-Oct-2026
+- **A failed restart tells the old agent from the new one.** 0.23.4 said
+  "still runs, on the binary it ran before" whenever any `yuneta_agent`
+  process was alive. When the old processes are gone and only new ones run
+  (a new binary that falls and its watcher relaunching it, or one slower
+  than the wait), the old binary serves nothing and no agent answers; the
+  command now compares the pids with those of before and says which.
+- **A process whose command line is not UTF-8 no longer breaks the reading
+  of the agents.** `restart-agents` and the stale-agent notice of a build
+  raised `UnicodeDecodeError`; the argv is now decoded as the filesystem
+  does (`os.fsdecode`), so it is kept byte for byte when an agent run by
+  hand is started again with it.
+
 ## 0.23.4 -- 22-Oct-2026
 - **`restart-agents --without-spare` no longer says "this node has NO agent
   now" while the main agent still runs.** A failed restart of the main agent
