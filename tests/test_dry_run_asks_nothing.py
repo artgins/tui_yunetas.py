@@ -75,6 +75,10 @@ def test_sync_binaries_dry_run_asks_nothing(tmp_path, fake_ycommand):
     assert "none was executed" in out
     assert "would be kill-yuno'd" in out and "were kill-yuno'd" not in out
     assert "would create NEW slot" in out and "created NEW slot" not in out
+    note = out[out.index("would create NEW slot"):]
+    assert "yunetas upgrade-yunos" in note
+    assert "ycommand -c 'find-new-yunos create=1'" in note
+    assert "ycommand -c 'deactivate-snap'" in note
     assert not any(c.startswith(PUSHES) for c in asked(log))
 
 

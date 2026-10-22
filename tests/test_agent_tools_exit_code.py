@@ -108,3 +108,19 @@ def test_sync_binaries_role_keeps_only_that_role(tmp_path, fake_ycommand):
     r = run_tool("sync_binaries", base + ["--role", "nope"])
     assert r.returncode == 2
     assert "not a binary installed in this agent" in r.stdout
+
+
+def test_sync_binaries_role_without_a_local_build_is_an_error(tmp_path, fake_ycommand):
+    yunos = tmp_path / "yunos"
+    yunos.mkdir()
+    ycommand, log = fake_ycommand({
+        "*list-binaries": json.dumps([{"id": "gate", "version": "1.0.0", "size": 1, "time": 1}]),
+        "*list-binaries-instances": "[]",
+        "*list-yunos": "[]",
+    })
+    r = run_tool("sync_binaries", ["--ycommand", str(ycommand), "--yunos-dir", str(yunos),
+                                   "-a", "--role", "gate"])
+    assert r.returncode == 2, r.stdout + r.stderr
+    assert "no local build" in r.stdout
+    assert "up to date" not in r.stdout
+    assert not any(c.startswith(("install-binary", "update-binary")) for c in asked(log))

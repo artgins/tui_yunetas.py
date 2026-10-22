@@ -667,6 +667,12 @@ def main():
             print(red("ERROR: --role %s: not a binary installed in this agent." % ", ".join(unknown)))
             sys.exit(2)
         rows = [r for r in rows if r["role"] in args.role]
+        # A role asked by name and not built would otherwise be a hidden
+        # "no-build" row, and the run would end "Everything is up to date".
+        nolocal = sorted(r["role"] for r in rows if r["kind"] == "nolocal")
+        if nolocal:
+            print(red("ERROR: --role %s: no local build in %s." % (", ".join(nolocal), yunos_dir)))
+            sys.exit(2)
     print_table(rows, show_uptodate=args.show_uptodate or args.dry_run)
 
     installed = [r for r in rows if r["kind"] == "installed"]
@@ -776,6 +782,7 @@ def main():
         print(dim("the push run:"))
     elif did_install:
         print(dim("\nNote: install-binary created NEW slot(s). To make them primary run:"))
+    if did_install:
         print(dim("   yunetas upgrade-yunos              (shoot-snap -> find-new-yunos -> deactivate-snap)"))
         print(dim("or the raw equivalent:"))
         print(dim("   ycommand -c 'find-new-yunos create=1'"))
