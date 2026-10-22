@@ -67,8 +67,9 @@ yunetas set-start-priorities  [-n|-a|--rule P=N]  # launch tier of each yuno, by
 # every deploy command takes --node <name> (and --tunnel) to act on a registered node
 
 # This node
-yunetas restart-agents [-n|-y]  # restart the agents that run a replaced binary:
-                                # the main one, then the spare once the main answers
+yunetas restart-agents [-n|-y|--without-spare]  # restart the agents that run a
+                                # replaced binary: the main one, then the spare once
+                                # the main answers
 ```
 
 On a **runtime-only node** (installed from the `.deb`/`.rpm`: `outputs/`,
@@ -83,7 +84,8 @@ failed binaries pass.
 
 `sync-binaries --role <role>` (repeatable) pushes only those roles. Without
 it, a change to one yuno can drag in every other binary that differs by a few
-bytes, because the local SDK is newer than the node's.
+bytes, because the local SDK is newer than the node's. A role that the agent
+does not have, or that has no local build, is an error (exit 2).
 
 
 # The agents of this node
@@ -99,6 +101,10 @@ restart-agents` restarts them in the safe order:
    answers a command.
 3. Only then does it do the same with the spare. The spare is the way into a
    node whose main agent does not come up, so a failure leaves it alone.
+
+When the spare does not run, the command refuses to restart the main agent:
+if the main agent does not come up, the node has no agent at all. Start the
+spare first, or give `--without-spare` to restart the main agent alone.
 
 An agent in its systemd unit is restarted with `sudo -n systemctl restart`. An
 agent run by hand is restarted with `--stop` and its own command line again.

@@ -126,6 +126,50 @@ def test_main_not_running_is_an_error(fake):
     assert log == []
 
 
+def test_spare_not_running_refuses_to_restart_the_main(fake):
+    log, states, _, _ = fake
+    states["yuneta_agent"] = state("yuneta_agent", "main")
+    states["yuneta_agent22"] = state("yuneta_agent22", "spare", running=False)
+    r = run()
+    assert r.exit_code == 1
+    assert "--without-spare" in r.output
+    assert log == []
+
+
+def test_spare_not_running_refuses_the_dry_run_too(fake):
+    log, states, _, _ = fake
+    states["yuneta_agent"] = state("yuneta_agent", "main")
+    states["yuneta_agent22"] = state("yuneta_agent22", "spare", running=False)
+    r = runner.invoke(m.app, ["restart-agents", "-n"])
+    assert r.exit_code == 1
+    assert "--without-spare" in r.output
+    assert log == []
+
+
+def test_without_spare_restarts_the_main_alone(fake):
+    log, states, _, _ = fake
+    states["yuneta_agent"] = state("yuneta_agent", "main")
+    states["yuneta_agent22"] = state("yuneta_agent22", "spare", running=False)
+    r = run("--without-spare")
+    assert r.exit_code == 0, r.output
+    assert log == [
+        ("backup", "yuneta_agent"),
+        ("restart", "yuneta_agent", "hand", False),
+        ("answers",),
+    ]
+
+
+def test_a_failed_main_without_spare_never_calls_the_spare_a_way_in(fake):
+    log, states, _, restart_ok = fake
+    states["yuneta_agent"] = state("yuneta_agent", "main")
+    states["yuneta_agent22"] = state("yuneta_agent22", "spare", running=False)
+    restart_ok["yuneta_agent"] = False
+    r = run("--without-spare")
+    assert r.exit_code == 1
+    assert "the way into this node" not in r.output
+    assert "NO agent" in r.output
+
+
 def test_another_users_agents_are_refused(fake):
     log, states, _, _ = fake
     states["yuneta_agent"] = state("yuneta_agent", "main", uid=ME + 1, readable=False)
@@ -189,3 +233,23 @@ def test_config_file_from_the_command_line():
     assert m.agent_config_file("a", ["/x", "--config-file", "/c.json", "--start"]) == "/c.json"
     assert m.agent_config_file("a", ["/x", "--config-file=/d.json"]) == "/d.json"
     assert m.agent_config_file("a", None) == "/yuneta/agent/a.json"
+
+
+def test_restart_by_hand_does_not_hand_the_credentials_to_the_agent(monkeypatch):
+    calls = []
+    monkeypatch.setenv("YUNETA_OAUTH_PASSW", "p")
+    monkeypatch.setenv("YUNETA_OAUTH_CLIENT_SECRET", "s")
+    monkeypatch.setenv("YUNETA_OAUTH_JWT", "j")
+    monkeypatch.setenv("KEEP_ME", "k")
+    monkeypatch.setattr(m.subprocess, "run", lambda cmd, **k: calls.append((cmd, k.get("env"))) or
+                        m.subprocess.CompletedProcess(cmd, 0, "", ""))
+    monkeypatch.setattr(m, "wait_agent_gone", lambda name, old: True)
+    monkeypatch.setattr(m, "wait_agent_up", lambda name, old: True)
+    assert m.restart_agent(state("yuneta_agent", "main"), False)
+    assert len(calls) == 2
+    for cmd, env in calls:
+        assert env is not None, cmd
+        assert "YUNETA_OAUTH_PASSW" not in env
+        assert "YUNETA_OAUTH_CLIENT_SECRET" not in env
+        assert "YUNETA_OAUTH_JWT" not in env
+        assert env.get("KEEP_ME") == "k"

@@ -1153,6 +1153,18 @@ def agent_answers():
     return False
 
 
+def agent_env():
+    """
+    The environment for an agent started by this process: ours without the
+    operator's credentials. The agent is long-lived, and so is every yuno it
+    launches; they would keep them in /proc/<pid>/environ and in core dumps.
+    """
+    env = os.environ.copy()
+    for key in (ENV_OAUTH_PASSW, ENV_OAUTH_CLIENT_SECRET, ENV_OAUTH_JWT):
+        env.pop(key, None)
+    return env
+
+
 def restart_agent(state, dry_run):
     """
     Restart one agent on the binary on disk: through its systemd unit when it
@@ -1186,8 +1198,9 @@ def restart_agent(state, dry_run):
         print(f"[cyan]>> {' '.join(start)}[/cyan]")
         if dry_run:
             return True
+        env = agent_env()
         subprocess.run(stop, capture_output=True, text=True, stdin=subprocess.DEVNULL,
-                       timeout=AGENT_RESTART_TIMEOUT)
+                       env=env, timeout=AGENT_RESTART_TIMEOUT)
         if not wait_agent_gone(name, old_pids):
             print(f"[red]Error: {name} still runs {AGENT_RESTART_TIMEOUT} s after --stop; "
                   f"it was not started again.[/red]")
@@ -1195,7 +1208,7 @@ def restart_agent(state, dry_run):
         # It daemonizes itself; a session of its own keeps it off this terminal.
         subprocess.run(start, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                        stderr=subprocess.DEVNULL, start_new_session=True,
-                       timeout=AGENT_RESTART_TIMEOUT)
+                       env=env, timeout=AGENT_RESTART_TIMEOUT)
 
     if not wait_agent_up(name, old_pids):
         print(f"[red]Error: {name} does not run again on the binary on disk.[/red]")
@@ -1211,12 +1224,18 @@ def restart_agents(
     dry_run: bool = typer.Option(
         False, "--dry-run", "-n", help="Show the state and the commands, run nothing."
     ),
+    without_spare: bool = typer.Option(
+        False, "--without-spare",
+        help="Restart the main agent although the spare does not run. If the "
+             "main agent then does not come up, the node has no agent at all.",
+    ),
 ):
     """
     Restart the agents of THIS node that run a binary a build replaced: the
     main agent first, then, once it answers, the spare. Never both at once,
     never the spare first: the spare is the way into a node whose main agent
-    does not come up.
+    does not come up. When the spare does not run, the main agent is not
+    restarted unless --without-spare is given.
 
     An agent that runs in its systemd unit is restarted with 'sudo -n
     systemctl restart <unit>'; one run by hand, with --stop and its own
@@ -1262,6 +1281,14 @@ def restart_agents(
         print("[green]Every running agent runs the binary on disk. Nothing to do.[/green]")
         return
 
+    # Two agents is the rule: with the spare down, a main agent that does not
+    # come up leaves the node with no agent at all.
+    if main_state["stale"] and not spare_state["running"] and not without_spare:
+        print(f"[red]Error: {spare_state['name']} does not run, so it is no way into this node "
+              f"if {main_state['name']} does not come up. Start {spare_state['name']} first, "
+              f"or give --without-spare to restart {main_state['name']} alone.[/red]")
+        raise typer.Exit(code=1)
+
     if not yes and not dry_run:
         names = " then ".join(s["name"] for s in to_restart)
         if not typer.confirm(f"Restart {names}?", default=False):
@@ -1274,7 +1301,11 @@ def restart_agents(
             print("[red]Nothing restarted.[/red]")
             raise typer.Exit(code=1)
         if not restart_agent(main_state, dry_run):
-            print(f"[red]{spare_state['name']} was NOT touched: it is the way into this node.[/red]")
+            if spare_state["running"]:
+                print(f"[red]{spare_state['name']} was NOT touched: it is the way into this node.[/red]")
+            else:
+                print(f"[red]{spare_state['name']} does not run: this node has NO agent now. "
+                      f"Start one of them on the node.[/red]")
             raise typer.Exit(code=1)
 
     if spare_state["running"] and spare_state["stale"]:
