@@ -1,5 +1,12 @@
 # **Changelog**
 
+## 0.23.4 -- 22-Oct-2026
+- **`restart-agents --without-spare` no longer says "this node has NO agent
+  now" while the main agent still runs.** A failed restart of the main agent
+  was always read as an agent down. When `sudo -n systemctl restart` fails,
+  or the agent still runs after `--stop`, it still serves on its old binary;
+  the command now looks at the processes again and says that.
+
 ## 0.23.3 -- 22-Oct-2026
 - **`restart-agents` refuses to restart the main agent when the spare does
   not run.** It restarted it anyway, so a main agent that did not come up

@@ -1303,6 +1303,10 @@ def restart_agents(
         if not restart_agent(main_state, dry_run):
             if spare_state["running"]:
                 print(f"[red]{spare_state['name']} was NOT touched: it is the way into this node.[/red]")
+            elif agent_processes(main_state["name"]):
+                # systemctl failed, or it outlived --stop: it still serves, on the old binary.
+                print(f"[red]{main_state['name']} still runs, on the binary it ran before; "
+                      f"{spare_state['name']} does not run.[/red]")
             else:
                 print(f"[red]{spare_state['name']} does not run: this node has NO agent now. "
                       f"Start one of them on the node.[/red]")

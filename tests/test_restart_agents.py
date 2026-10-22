@@ -55,6 +55,8 @@ def fake(monkeypatch):
 
     monkeypatch.setattr(m, "restart_agent", restart_agent)
     monkeypatch.setattr(m, "agent_answers", agent_answers)
+    # After a failed restart the command looks again: by default no agent runs.
+    monkeypatch.setattr(m, "agent_processes", lambda name: [])
     return log, states, answers, restart_ok
 
 
@@ -168,6 +170,20 @@ def test_a_failed_main_without_spare_never_calls_the_spare_a_way_in(fake):
     assert r.exit_code == 1
     assert "the way into this node" not in r.output
     assert "NO agent" in r.output
+
+
+def test_a_failed_main_that_still_runs_is_not_called_gone(fake, monkeypatch):
+    # systemctl failed, or the agent outlived --stop: the main agent still serves.
+    log, states, _, restart_ok = fake
+    states["yuneta_agent"] = state("yuneta_agent", "main")
+    states["yuneta_agent22"] = state("yuneta_agent22", "spare", running=False)
+    restart_ok["yuneta_agent"] = False
+    monkeypatch.setattr(m, "agent_processes",
+                        lambda name: [{"pid": 100}] if name == "yuneta_agent" else [])
+    r = run("--without-spare")
+    assert r.exit_code == 1
+    assert "NO agent" not in r.output
+    assert "yuneta_agent still runs" in r.output
 
 
 def test_another_users_agents_are_refused(fake):
