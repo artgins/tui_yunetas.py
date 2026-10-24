@@ -100,6 +100,7 @@ from datetime import datetime
 
 from yunetas.agent_tools.common import (
     add_agent_arguments, ask, bold, cmp_versions, cyan, dim, green,
+    version_has_a_comparable_shape,
     obtain_jwt, parse_leading_json, red, set_tls_flags, ycmd_base, yellow,
 )
 
@@ -211,6 +212,10 @@ def local_binaries(yunos_dir):
             # update-binary id=<role> targets by the agent id, which is the
             # filename here. They normally coincide; warn if they don't.
             print(yellow("  ! %s: role '%s' != filename, using filename as the id" % (name, role)))
+        version = info.get("version", "?")
+        if not version_has_a_comparable_shape(version):
+            print(yellow("  ! %s: version '%s' is neither x.y.z nor x.y.z-a.b.c: "
+                         "its releases may not compare in order" % (name, version)))
         try:
             mtime = int(os.path.getmtime(path))
         except OSError:

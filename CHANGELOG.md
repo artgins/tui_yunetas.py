@@ -1,5 +1,14 @@
 # **Changelog**
 
+## 1.0.1 -- 24-Oct-2026
+- **`sync-binaries` warns of a binary version whose releases may not compare
+  in order**: anything but `x.y.z` (a yuno of the SDK), `x.y.z-a.b.c` (a
+  project yuno with its SDK) or the older `x.y.z.0`. The agent orders the
+  releases of a yuno, `<version>-<config>`, as one list of numbers, and the
+  count of the yuno's own numbers decides where the SDK's land: with two of
+  them, `1.0-7.27.11` compared NEWER than `1.0.1-7.27.11`. The push goes on;
+  the agent says the same since SDK 7.27.13.
+
 ## 1.0.0 -- 24-Oct-2026
 - **The version takes one digit per segment**, rolling over like an
   odometer (x.y.9 -> x.(y+1).0, x.9.9 -> (x+1).0.0). 1.0.0 is the code of

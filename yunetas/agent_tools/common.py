@@ -96,6 +96,18 @@ def version_tuple(v):
     return tuple(parts)
 
 
+def version_has_a_comparable_shape(v):
+    """
+    True for a binary version whose releases compare in order, as
+    yuno_version_has_a_comparable_shape() of the agent: "x.y.z" (a yuno of
+    the SDK), "x.y.z-a.b.c" (a project yuno with its SDK, since 7.27.11) or
+    the older "x.y.z.0" form. The agent orders the releases of a yuno,
+    "<version>-<config>", as one list of numbers: with two own numbers,
+    1.0-7.27.11 compared NEWER than 1.0.1-7.27.11.
+    """
+    return bool(re.fullmatch(r"\d+\.\d+\.\d+(\.\d+|-\d+\.\d+\.\d+)?", str(v)))
+
+
 def cmp_versions(a, b):
     #   A missing segment is a zero, as in version_cmp(): "7.11" == "7.11.0"
     ta, tb = version_tuple(a), version_tuple(b)
