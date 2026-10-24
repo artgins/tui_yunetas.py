@@ -410,10 +410,13 @@ def _short_mtime(epoch):
 
 
 def print_table(rows, show_uptodate):
-    print()
-    print(bold("%-18s %-11s %-12s %-12s %-9s %-15s %s" % (
-        "role", "status", "local ver", "agent ver", "Δsize", "command", "note")))
-    print(dim("-" * 92))
+    """
+    The columns are as wide as their longest value, the old widths as a
+    floor: since SDK 7.27.11 a project yuno's version carries its SDK
+    (1.9.1-7.27.13), longer than the 12 a version column used to get, and a
+    fixed width pushed every column after it out of line.
+    """
+    lines = []
     for r in rows:
         kind = r["kind"]
         if kind in ("uptodate", "nolocal") and not show_uptodate:
@@ -433,11 +436,18 @@ def print_table(rows, show_uptodate):
         if kind == "rebuild" and r.get("reason") == "newer build":
             stamp = _short_mtime(r["local"].get("mtime")) if r["local"] else ""
             note = dim("newer build" + (" (%s)" % stamp if stamp else ""))
-        print("%-18s %s %-12s %-12s %-9s %-15s %s" % (
-            r["role"],
-            colour("%-11s" % label),
-            lv, av, dtxt, action, note,
-        ))
+        lines.append((r["role"], colour, label, lv, av, dtxt, action, note))
+
+    w_role = max([18] + [len(x[0]) for x in lines])
+    w_ver = max([12] + [len(x[3]) for x in lines] + [len(x[4]) for x in lines])
+    w_size = max([9] + [len(x[5]) for x in lines])
+    fmt = "%%-%ds %%s %%-%ds %%-%ds %%-%ds %%-15s %%s" % (w_role, w_ver, w_ver, w_size)
+
+    print()
+    print(bold(fmt % ("role", "%-11s" % "status", "local ver", "agent ver", "Δsize", "command", "note")))
+    print(dim("-" * (w_role + 1 + 11 + 1 + 2 * (w_ver + 1) + w_size + 1 + 15 + 6)))
+    for role, colour, label, lv, av, dtxt, action, note in lines:
+        print(fmt % (role, colour("%-11s" % label), lv, av, dtxt, action, note))
     print()
 
 

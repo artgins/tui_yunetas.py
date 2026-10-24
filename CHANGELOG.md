@@ -1,5 +1,12 @@
 # **Changelog**
 
+## 1.0.2 -- 24-Oct-2026
+- **The table of `sync-binaries` stays in line with long versions.** Its
+  columns had fixed widths, 12 for a version, and a project yuno's version
+  carries its SDK since SDK 7.27.11 (`2.17.3-7.27.13`, 14 characters): every
+  column after it moved. The role, version and size columns are now as wide
+  as their longest value, the old widths as a floor.
+
 ## 1.0.1 -- 24-Oct-2026
 - **`sync-binaries` warns of a binary version whose releases may not compare
   in order**: anything but `x.y.z` (a yuno of the SDK), `x.y.z-a.b.c` (a
