@@ -1,5 +1,11 @@
 # **Changelog**
 
+## 1.0.0 -- 24-Oct-2026
+- **The version takes one digit per segment**, rolling over like an
+  odometer (x.y.9 -> x.(y+1).0, x.9.9 -> (x+1).0.0). 1.0.0 is the code of
+  0.23.6 under the first number above it that keeps the rule. Nothing else
+  changes.
+
 ## 0.23.6 -- 24-Oct-2026
 - **`yuneta_version.h` and `yuneta_config.h` are written when their TEXT
   changes**, not when their source is newer. A `YUNETA_VERSION` put back
