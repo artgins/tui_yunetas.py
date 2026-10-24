@@ -80,18 +80,27 @@ def parse_leading_json(text):
 
 def version_tuple(v):
     """
-    Turn '7.4.5' or '1.4.4.0' into a comparable tuple of ints. Non-numeric
-    chunks fall back to 0 so a malformed version never crashes the compare.
+    Turn '7.4.5', '1.4.4.0' or '1.9.1-7.27.11' into a comparable tuple of
+    ints. Non-numeric chunks fall back to 0 so a malformed version never
+    crashes the compare.
+
+    Split at '.' AND '-', as version_cmp() of the SDK (helpers.c) does: a
+    yuno's version carries the SDK it was built with after a '-'
+    (`"1.9.1" "-" YUNETA_VERSION`), and split at '.' alone "1-7" read as 1,
+    the SDK's major was lost and 1.9.1-8.0.0 compared BELOW 1.9.1-7.27.11.
     """
     parts = []
-    for chunk in str(v).split("."):
+    for chunk in re.split(r"[.-]", str(v)):
         m = re.match(r"\d+", chunk)
         parts.append(int(m.group(0)) if m else 0)
     return tuple(parts)
 
 
 def cmp_versions(a, b):
+    #   A missing segment is a zero, as in version_cmp(): "7.11" == "7.11.0"
     ta, tb = version_tuple(a), version_tuple(b)
+    n = max(len(ta), len(tb))
+    ta, tb = ta + (0,) * (n - len(ta)), tb + (0,) * (n - len(tb))
     if ta < tb:
         return -1
     if ta > tb:

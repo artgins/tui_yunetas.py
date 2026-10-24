@@ -1,5 +1,19 @@
 # **Changelog**
 
+## 0.23.6 -- 24-Oct-2026
+- **`yuneta_version.h` and `yuneta_config.h` are written when their TEXT
+  changes**, not when their source is newer. A `YUNETA_VERSION` put back
+  with an older time (`cp -p`, a branch switch) left the header saying the
+  old version until a `yunetas init`; a source touched with nothing changed
+  rewrote it, and everything that includes it was rebuilt. The headers no
+  longer carry the year either, which changed their text every January.
+- **Versions are split at '-' as well as '.'** (`version_tuple()`, used by
+  `sync-binaries` and `sync-configs`), as `version_cmp()` of the SDK does, and
+  a missing segment counts as 0 (`7.11` == `7.11.0`). A yuno's version now
+  carries the SDK it was built with after a '-' (`"1.9.1" "-" YUNETA_VERSION`
+  -> `1.9.1-7.27.11`): split at '.' alone, `1-7` read as 1, so
+  `1.9.1-8.0.0` would have been a DOWNGRADE of `1.9.1-7.27.11`.
+
 ## 0.23.5 -- 22-Oct-2026
 - **A failed restart tells the old agent from the new one.** 0.23.4 said
   "still runs, on the binary it ran before" whenever any `yuneta_agent`

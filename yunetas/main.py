@@ -2262,20 +2262,23 @@ def kconfig2include(config_file_path):
 
     return header_content
 
-def is_file_outdated(source_file, target_file):
+def write_generated_header(path, content):
     """
-    Check if the source file is newer than the target file.
+    Write a generated header only when its TEXT changes. Returns True when
+    it was written.
 
-    Args:
-        source_file (str): Path to the source file.
-        target_file (str): Path to the target file.
-
-    Returns:
-        bool: True if the source file is newer, or the target file does not exist.
+    It used to be written when its source was NEWER (mtimes): a source put
+    back with an older time (cp -p, a branch switch) left the header saying
+    the old version, and a source touched with nothing changed rewrote it,
+    and every file that includes it was rebuilt for nothing.
     """
-    if not os.path.isfile(target_file):
-        return True  # Target file doesn't exist, needs to be created
-    return os.path.getmtime(source_file) > os.path.getmtime(target_file)
+    if os.path.isfile(path):
+        with open(path) as f:
+            if f.read() == content:
+                return False
+    with open(path, "w") as f:
+        f.write(content)
+    return True
 
 def setup_yuneta_environment(reset_outputs=False):
     """
@@ -2352,28 +2355,22 @@ def setup_yuneta_environment(reset_outputs=False):
         if not os.path.isfile(yuneta_version_h_path):
             print(f"Error: neither YUNETA_VERSION nor a shipped '{yuneta_version_h_path}' found.")
             sys.exit(1)
-    elif is_file_outdated(yuneta_version_path2, yuneta_version_h_path):
-        year = datetime.now().year
-        version_header_content = f"""\
+    else:
+        version_header_content = """\
 /*
  *  Yuneta Version
  *  Automatically generated file. DO NOT EDIT.
  *  Set version in YUNETA_VERSION file.
  *
- *  Copyright (c) {year} ArtGins
+ *  Copyright (c) ArtGins
  */
 #pragma once
 
 """
         try:
             version_header_content += kconfig2include(yuneta_version_path2)
-
-            # Write the yuneta_version.h file
-            with open(yuneta_version_h_path, "w") as header_file:
-                header_file.write(version_header_content)
-            msg = f"Generated 'yuneta_version.h' at {yuneta_version_h_path}"
-            final_messages.append(msg)
-
+            if write_generated_header(yuneta_version_h_path, version_header_content):
+                final_messages.append(f"Generated 'yuneta_version.h' at {yuneta_version_h_path}")
         except Exception as e:
             print(f"Error: Unable to generate yuneta_version.h. {e}")
             sys.exit(1)
@@ -2382,32 +2379,25 @@ def setup_yuneta_environment(reset_outputs=False):
     # Generate yuneta_config.h from .config
     #--------------------------------------------------#
     yuneta_config_h_path = os.path.join(inc_dest_dir, "yuneta_config.h")
-    if is_file_outdated(yuneta_config_path, yuneta_config_h_path):
-        year = datetime.now().year
-
-        config_header_content = f"""\
+    config_header_content = """\
 /*
  *  Yuneta Configuration
  *  Automatically generated file. DO NOT EDIT.
- *  Set configuration in .config file. 
+ *  Set configuration in .config file.
  *  Modify with `menuconfig` command in yunetas root directory.
  *
- *  Copyright (c) {year} ArtGins
+ *  Copyright (c) ArtGins
  */
 #pragma once
 
 """
-        try:
-            config_header_content += kconfig2include(yuneta_config_path)
-
-            # Write the yuneta_config.h file
-            with open(yuneta_config_h_path, "w") as header_file:
-                header_file.write(config_header_content)
-            msg = f"Generated 'yuneta_config.h' at {yuneta_config_h_path}"
-            final_messages.append(msg)
-        except Exception as e:
-            print(f"Error: Unable to generate yuneta_config.h. {e}")
-            sys.exit(1)
+    try:
+        config_header_content += kconfig2include(yuneta_config_path)
+        if write_generated_header(yuneta_config_h_path, config_header_content):
+            final_messages.append(f"Generated 'yuneta_config.h' at {yuneta_config_h_path}")
+    except Exception as e:
+        print(f"Error: Unable to generate yuneta_config.h. {e}")
+        sys.exit(1)
 
     msg = f"Setup completed successfully:"
     final_messages.append(msg)
