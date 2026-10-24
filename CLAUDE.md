@@ -24,3 +24,13 @@ on top.
   and `docs/doc.yuneta.io/deploying-yunos.md`.
 - To ship: commit on `main` here, publish to PyPI when releasing, then
   **bump the `utils/python/tui_yunetas` submodule pointer in yunetas**.
+
+## Version numbers: one digit per segment
+
+Each segment of the CLI version is a single digit, 0 to 9, and they roll
+over like an odometer: after `x.y.9` comes `x.(y+1).0`, after `x.9.9` comes
+`(x+1).0.0` (rule of 2026-10-24: "0.23.6" had grown segments nobody reads at
+a glance). The last two-digit release was **0.23.6**; the next one is
+**1.0.0**, the first number above it that keeps the rule (a lower one would
+sort below 0.23.6 and `pipx upgrade` would never take it). Bump the last
+segment for every release; a contract change still bumps a higher one.
