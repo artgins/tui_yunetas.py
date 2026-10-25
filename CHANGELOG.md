@@ -1,5 +1,13 @@
 # **Changelog**
 
+## Unreleased
+
+- **`LICENSE` and `CONTRIBUTING.md`.** `pyproject.toml` said MIT, but the
+  repository had no license text: `LICENSE` is the MIT License (ArtGins
+  2024-2026), and `pdm-backend` puts it in the sdist and the wheel.
+  `CONTRIBUTING.md` says how to contribute and asks for the CLA of the
+  Yuneta projects. No change to the CLI.
+
 ## 1.0.2 -- 24-Oct-2026
 - **The table of `sync-binaries` stays in line with long versions.** Its
   columns had fixed widths, 12 for a version, and a project yuno's version
