@@ -78,8 +78,9 @@ infrastructure (logcenter/emailsender/auth_bff) back before gates and dba
 instead of in alphabetical order.
 
 It still does NOT automate the version-bump path (find-new-yunos +
-deactivate-snap after an install-binary) — that is a node-wide bounce with
-broader side effects. It prints the reminder instead, pointing at
+deactivate-snap after an install-binary): deactivate-snap restarts yunos (an
+agent of SDK 7.28.11 or later, only the ones whose launch changed; an older
+one, every yuno of the node). It prints the reminder instead, pointing at
 ``yunetas upgrade-yunos`` (the wrapper that bundles those steps with a
 rollback snap).
 See yunos/c/yuno_agent/YUNO_LIFECYCLE.md §6.5/§6.6.
@@ -801,7 +802,7 @@ def main():
         print(dim("   yunetas upgrade-yunos              (shoot-snap -> find-new-yunos -> deactivate-snap)"))
         print(dim("or the raw equivalent:"))
         print(dim("   ycommand -c 'find-new-yunos create=1'"))
-        print(dim("   ycommand -c 'deactivate-snap'      (node-wide bounce; shoot-snap first to keep a rollback)"))
+        print(dim("   ycommand -c 'deactivate-snap'      (restarts the yunos that changed -- every yuno with an agent before 7.28.11; shoot-snap first to keep a rollback)"))
 
     # The exit code is what `yunetas sync` reads to hold the configs back.
     if fail:

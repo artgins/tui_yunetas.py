@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 1.0.3 -- 27-Oct-2026
+- **`upgrade-yunos` and `sync-binaries` no longer say "node-wide bounce".**
+  Since SDK 7.28.11 the agent's `deactivate-snap` restarts only the yunos
+  whose launch changed; the help of `upgrade-yunos`, its final line (*"new
+  releases promoted, their yunos restarted"*) and the reminder of
+  `sync-binaries` say so, and that an older agent still restarts every yuno.
+  No change in what the commands do.
 - **`LICENSE` and `CONTRIBUTING.md`.** `pyproject.toml` said MIT, but the
   repository had no license text: `LICENSE` is the MIT License (ArtGins
   2024-2026), and `pdm-backend` puts it in the sdist and the wheel.

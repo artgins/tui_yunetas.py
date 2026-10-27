@@ -779,8 +779,10 @@ def upgrade_yunos(
       4. find-new-yunos create=1: register the new yuno-instance rows, and
          print "N created, M already registered". Skipped when every row
          is already registered.
-      5. deactivate-snap: triggers restart_nodes() on the agent (SIGKILL +
-         treedb reload), promoting the newest release of every yuno.
+      5. deactivate-snap: triggers restart_nodes() on the agent (treedb
+         reload), promoting the newest release of every yuno. An agent of
+         SDK 7.28.11 or later restarts only the yunos whose launch changed;
+         an older one SIGKILLs and restarts every yuno of the node.
     """
     ycommand = ycommand_path()
     if not ycommand:
@@ -880,7 +882,7 @@ def upgrade_yunos(
     if dry_run:
         print("[yellow]upgrade-yunos dry-run: nothing was run on the agent.[/yellow]")
         return
-    print("[green]upgrade-yunos done: new releases promoted and nodes restarted.[/green]")
+    print("[green]upgrade-yunos done: new releases promoted, their yunos restarted.[/green]")
 
 
 def _create_new_yuno_rows(ycommand, url, dry_run, to_create, registered):
