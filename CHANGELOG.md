@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 1.0.4 -- 29-Oct-2026
+- **`sync-binaries` warns of an old-form version other than `x.y.z.0`.** It
+  accepted any `x.y.z.N`, as the agent's `install-binary` did up to SDK
+  7.29.1: the fourth number lands where the SDK's major goes, so `1.9.1.8`
+  compares NEWER than `1.9.1-7.27.11`. Only `x.y.z.0` (which compares older)
+  passes now, as in the agent.
+
 ## 1.0.3 -- 27-Oct-2026
 - **`upgrade-yunos` and `sync-binaries` no longer say "node-wide bounce".**
   Since SDK 7.28.11 the agent's `deactivate-snap` restarts only the yunos

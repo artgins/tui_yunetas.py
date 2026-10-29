@@ -103,9 +103,10 @@ def version_has_a_comparable_shape(v):
     the SDK), "x.y.z-a.b.c" (a project yuno with its SDK, since 7.27.11) or
     the older "x.y.z.0" form. The agent orders the releases of a yuno,
     "<version>-<config>", as one list of numbers: with two own numbers,
-    1.0-7.27.11 compared NEWER than 1.0.1-7.27.11.
+    1.0-7.27.11 compared NEWER than 1.0.1-7.27.11. The older form only with
+    a 0: 1.9.1.8 compares NEWER than 1.9.1-7.27.11 (8 > 7).
     """
-    return bool(re.fullmatch(r"\d+\.\d+\.\d+(\.\d+|-\d+\.\d+\.\d+)?", str(v)))
+    return bool(re.fullmatch(r"\d+\.\d+\.\d+(\.0|-\d+\.\d+\.\d+)?", str(v)))
 
 
 def cmp_versions(a, b):

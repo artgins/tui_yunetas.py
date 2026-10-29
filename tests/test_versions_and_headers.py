@@ -50,13 +50,19 @@ class VersionShapes(unittest.TestCase):
 
     def test_the_shapes_that_do_not(self):
         for v in ("1.0-7.27.11", "1.0.0.1-7.27.11", "1.9.1-7.27", "1.9.1-7.27.11-2",
-                  "1.9", "1.9.1.", "v1.9.1", "", "?"):
+                  "1.9", "1.9.1.", "v1.9.1", "", "?",
+                  "1.9.1.8", "1.9.1.00"):
             self.assertFalse(version_has_a_comparable_shape(v), v)
 
     def test_why_two_own_numbers_are_refused(self):
         #   1.0 is older than 1.0.1, but with the SDK after it the 7 lands
         #   where the 1 is: the agent would take 1.0-7.27.11 for the newer
         self.assertEqual(cmp_versions("1.0-7.27.11", "1.0.1-7.27.11"), 1)
+
+    def test_why_the_old_form_takes_only_a_zero(self):
+        #   The fourth number sits where the SDK's major goes
+        self.assertEqual(cmp_versions("1.9.1.8", "1.9.1-7.27.11"), 1)
+        self.assertEqual(cmp_versions("1.9.1.0", "1.9.1-7.27.11"), -1)
 
 
 class GeneratedHeaders(unittest.TestCase):
