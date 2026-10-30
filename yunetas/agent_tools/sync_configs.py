@@ -21,7 +21,7 @@ A config in the agent is keyed by ``(id, version)``:
   * ``id``      is supplied as a command parameter; by convention it equals the
                 config FILENAME without the ``.json`` extension
                 (``auth_bff.1801.json`` -> id ``auth_bff.1801``, mirroring the
-                live agent ids ``scheduler_wz.5004``, ``gate_auraair.4502`` …).
+                live agent ids ``scheduler.5004``, ``gate_meter.4502`` …).
   * ``version`` is NOT a parameter: the agent reads it from the ``__version__``
                 field INSIDE the file content. ``__description__`` is read the
                 same way. (See ``cmd_create_config`` / ``cmd_update_config`` in

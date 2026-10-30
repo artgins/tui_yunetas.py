@@ -144,7 +144,7 @@
   JSON, the version compare and the colours were copied, identical, into each
   of them. The CLI uses the same login.
 - `sync-configs -r` waits 60 s for a yuno to stop before starting it again,
-  as `sync-binaries` does since 0.20.2 (two gates of yunovatios' central took
+  as `sync-binaries` does since 0.20.2 (two gates of a central node took
   longer than 15 s to stop).
 - `upgrade-yunos -n` ends with "dry-run: nothing was run" instead of claiming
   that the nodes were restarted.
@@ -242,11 +242,12 @@
   The SDK and every registered project install their yunos into one
   `outputs/yunos`, so a role two of them build is overwritten by whichever
   builds last, and `sync-binaries` or `update-binary $$()` then ship that
-  one -- it sent yunovatios' `gate_caudal` to hidraulia for three hours.
+  one -- it sent one project's `gate_meter` to another project's node for
+  three hours.
   After the builds, the CLI reads each tree's `install_manifest.txt` and
   ends with a red WARNING per role installed by more than one of them
-  (`role 'gate_caudal' is installed in outputs/yunos by hidraulia AND
-  yunovatios`). A warning, not a refusal: a machine that builds projects
+  (`role 'gate_meter' is installed in outputs/yunos by project_a AND
+  project_b`). A warning, not a refusal: a machine that builds projects
   sharing roles on purpose keeps building.
 
 ## 0.20.3 -- 01-Oct-2026
@@ -263,12 +264,12 @@
 - **`sync-binaries` uploads the file it compared.** The table was built from
   `--yunos-dir`, but `install-binary` / `update-binary` sent `$$(<role>)`,
   which ycommand resolves in `outputs/yunos`: on a node with two projects
-  that both build a `gate_caudal` (hidraulia, 2026-09-28), the row said
+  that both build a `gate_meter` (a client node, 2026-09-28), the row said
   `REBUILD 1.9.0.0` from the staged file and the upload was the other
   project's 1.6.1.0. The command now carries the file's path (and
   `--yunos-dir` is made absolute).
 - The wait for a yuno to stop before a same-version `update-binary` goes from
-  15 to 60 s: two gates on yunovatios' central were still stopping at 15 s
+  15 to 60 s: two gates on a central node were still stopping at 15 s
   and the copy hit text-file-busy.
 
 ## 0.20.1 -- 28-Sep-2026

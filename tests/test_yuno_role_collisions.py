@@ -44,10 +44,10 @@ class RoleCollisions(unittest.TestCase):
 
     def test_same_role_in_two_projects(self):
         self.install(os.path.join(self.base, "yunos/c/emailsender"), ["emailsender"])
-        hidraulia = self.project("hidraulia", ["gate_caudal", "db_history"])
-        yunovatios = self.project("yunovatios", ["gate_caudal", "db_tracks_co"])
-        got = main.find_yuno_role_collisions([hidraulia, yunovatios])
-        self.assertEqual(got, {"gate_caudal": {"hidraulia", "yunovatios"}})
+        project_a = self.project("project_a", ["gate_meter", "db_history"])
+        project_b = self.project("project_b", ["gate_meter", "db_tracks"])
+        got = main.find_yuno_role_collisions([project_a, project_b])
+        self.assertEqual(got, {"gate_meter": {"project_a", "project_b"}})
 
     def test_project_role_of_the_sdk(self):
         self.install(os.path.join(self.base, "yunos/c/emailsender"), ["emailsender"])

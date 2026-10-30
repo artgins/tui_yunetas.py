@@ -20,7 +20,7 @@ Default tiers (lower starts earlier):
 
 Rules are matched in order; the first match wins. ``--rule 'PATTERN=PRIO'`` adds
 or overrides a rule (PATTERN is an exact role or a ``prefix_*`` glob), e.g.
-``--rule 'notifier_wz=2' --rule 'scheduler_*=6'``. Built-in rules are applied
+``--rule 'notifier=2' --rule 'scheduler_*=6'``. Built-in rules are applied
 after explicit ones, so an explicit rule always takes precedence.
 
 It shows the plan, asks for confirmation, then writes only the yunos whose

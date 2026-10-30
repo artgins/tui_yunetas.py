@@ -277,8 +277,8 @@ def build(
     #
     #   Two builds that install a yuno of the same role overwrite each other
     #   in outputs/yunos (one directory for the SDK and every project), and
-    #   sync-binaries / $$() then ship whichever came last. It sent
-    #   yunovatios' gate_caudal to hidraulia for three hours.
+    #   sync-binaries / $$() then ship whichever came last. It sent one
+    #   project's gate_meter to another project's node for three hours.
     #   Said loudly, last, and not refused: a machine that builds projects
     #   sharing roles on purpose would stop building at all.
     #
@@ -396,7 +396,7 @@ def list_projects():
 
 @app.command(name="register-node")
 def register_node(
-    name: str = typer.Argument(..., help="Short name to use with --node (e.g. 'controlador')."),
+    name: str = typer.Argument(..., help="Short name to use with --node (e.g. 'edge')."),
     url: Optional[str] = typer.Option(
         None, "--url", "-u", help="Agent url reachable from here, e.g. wss://host:1993."
     ),
@@ -1355,7 +1355,7 @@ def restart_agents(
 # The first SDK whose suite passes at once (ctest -j). 7.26.1 declares what
 # its tests share (RESOURCE_LOCK, FIXTURES_*, RUN_SERIAL); 7.26.2 split
 # test_c_treedb_literal_wins into groups whose watchers exhausted the
-# per-user inotify instances in parallel (it failed on hidraulia and
+# per-user inotify instances in parallel (it failed on a client node and
 # artgins), fixed in 7.26.3. An older tree runs its tests one after another.
 CTEST_PARALLEL_SINCE = (7, 26, 3)
 
