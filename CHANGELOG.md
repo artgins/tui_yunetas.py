@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.0.5 -- 30-Oct-2026
+- **No private name in the package.** Comments, docstrings and tests name
+  nodes, yunos and applications by their role. No code change.
+
 ## 1.0.4 -- 29-Oct-2026
 - **`sync-binaries` warns of an old-form version other than `x.y.z.0`.** It
   accepted any `x.y.z.N`, as the agent's `install-binary` did up to SDK
