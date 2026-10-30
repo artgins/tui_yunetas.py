@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+## 1.0.6 -- 30-Oct-2026
+- **The tests use generic yuno names.** No code change.
+
 ## 1.0.5 -- 30-Oct-2026
 - **Comments, docstrings and tests name nodes, yunos and applications by
   their role.** No code change.
